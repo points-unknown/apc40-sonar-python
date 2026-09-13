@@ -7,7 +7,7 @@
 --   * Startup lightshow (ported from baseline/apc40-startup-lightshow.lua)
 --   * Mode / bank state and change-cached rendering
 --
--- Requires the generated config apc40-sonar.cfg (or tools/apc40-mcu-test.cfg).
+-- Requires the generated config apc40-sonar.cfg (or tools/APC40-IN-test.cfg).
 -- The channel naming contract is documented in tools/gen-apc40-sonar-config.ps1.
 --
 -- MCU protocol reference: docs/mcu-mapping.md

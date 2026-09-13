@@ -7,13 +7,13 @@ indices are not stable across device/loopMIDI restarts.
 Port topology (see docs/setup-loopmidi-and-cakewalk.md):
 
     Akai APC40   physical device      read + write   this app only
-    APC40-MCU    app  -> Cakewalk     write          Cakewalk surface In Port
-    APC40-DEBUG  Cakewalk -> app      read           Cakewalk surface Out Port
+    APC40-IN    app  -> Cakewalk     write          Cakewalk surface In Port
+    APC40-OUT  Cakewalk -> app      read           Cakewalk surface Out Port
 
 Note: python-rtmidi (WinMM backend) reports port names with a trailing
 ``" <index>"`` suffix, e.g. ``"Akai APC40 3"``. Name resolution strips that
 suffix and matches case-insensitively, so the configured names from the docs
-(``"Akai APC40"``, ``"APC40-MCU"``, ``"APC40-DEBUG"``) resolve correctly.
+(``"Akai APC40"``, ``"APC40-IN"``, ``"APC40-OUT"``) resolve correctly.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def strip_index(name: str) -> str:
     """Return *name* without a trailing ``" <digits>"`` index suffix.
 
     python-rtmidi appends the backend index to every port name, for example
-    ``"APC40-MCU 1"``. Configuration and the Akai/MCU docs use the plain name,
+    ``"APC40-IN 1"``. Configuration and the Akai/MCU docs use the plain name,
     so this normalizes both sides of a comparison.
     """
 

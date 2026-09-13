@@ -10,7 +10,7 @@ reference, but hit a class of platform limitations that are costly to work aroun
 - Output values are de-duplicated, so repeated identical presses are dropped.
 - A single `default-handler` does not reliably provide the input channel name.
 - Interval/show timing is opaque and the startup show sometimes never completes.
-- **Intermittent feedback loss:** MIDI-OX receives Cakewalk's feedback on `APC40-DEBUG`
+- **Intermittent feedback loss:** MIDI-OX receives Cakewalk's feedback on `APC40-OUT`
   while MIDIMonster does not, indicating loopMIDI reader starvation.
 
 A small Python application removes all of these: we own the MIDI ports directly, send
@@ -35,9 +35,9 @@ flowchart LR
   IO --> ENG[engine state machine]
   ENG --> MCUOUT[mcu encoder]
   MCUOUT --> IO
-  IO --> MCU[loopMIDI APC40-MCU]
+  IO --> MCU[loopMIDI APC40-IN]
   MCU --> CW[Cakewalk Mackie Control]
-  CW --> FB[loopMIDI APC40-DEBUG]
+  CW --> FB[loopMIDI APC40-OUT]
   FB --> IO
   IO --> ENG
   ENG --> APCOUT[apc40 renderer]
@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 - One process owns the physical `Akai APC40` (input and output).
-- One process owns `APC40-MCU` (write) and `APC40-DEBUG` (read).
+- One process owns `APC40-IN` (write) and `APC40-OUT` (read).
 - No other application may open these ports while the app runs.
 
 ## Port topology (unchanged)
@@ -54,8 +54,8 @@ flowchart LR
 | Port | Direction | Used by |
 |---|---|---|
 | `Akai APC40` | read + write | this app only |
-| `APC40-MCU` | app -> Cakewalk | app writes; Cakewalk surface In Port |
-| `APC40-DEBUG` | Cakewalk -> app | Cakewalk surface Out Port; app reads |
+| `APC40-IN` | app -> Cakewalk | app writes; Cakewalk surface In Port |
+| `APC40-OUT` | Cakewalk -> app | Cakewalk surface Out Port; app reads |
 
 ## Module layout
 

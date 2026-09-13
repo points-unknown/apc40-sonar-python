@@ -63,22 +63,73 @@ def test_device_knob_only_drives_vpots_in_device_mode():
     assert rec.mcu_msgs == [mcu.vpot_delta(1, -1)]
 
 
-def test_strip_button_press_and_release_use_real_notes():
+def test_latching_toggle_clicks_on_both_edges():
+    # Record Arm in Generic Mode is a latch: Note On = on, Note Off = off.
+    # Each edge must emit one MCU press, else turning it off is ignored.
     eng, rec, _ = make_engine()
 
-    eng.on_apc_message((0x92, apc.NOTE_RECORD_ARM, 127))  # track 3 arm press
-    eng.on_apc_message((0x92, apc.NOTE_RECORD_ARM, 0))  # release
+    eng.on_apc_message((0x92, apc.NOTE_RECORD_ARM, 127))  # track 3 arm on
+    eng.on_apc_message((0x92, apc.NOTE_RECORD_ARM, 0))  # track 3 arm off
 
-    assert rec.mcu_msgs == [
-        mcu.button_press(mcu.NOTE_REC1 + 2),
-        mcu.button_release(mcu.NOTE_REC1 + 2),
-    ]
+    note = mcu.NOTE_REC1 + 2
+    click = [mcu.button_press(note), mcu.button_release(note)]
+    assert rec.mcu_msgs == click + click
 
 
-def test_clip_stop_maps_to_vpot_push():
+def test_track1_arm_sends_standard_mcu_rec_note_zero():
+    # Cakewalk's Mackie Control ignores note 0, so track 1 will not arm over the
+    # surface (documented limitation); the app still emits the standard message
+    # for hosts that do honor it.
     eng, rec, _ = make_engine()
+    eng.on_apc_message((0x90, apc.NOTE_RECORD_ARM, 127))
+    assert rec.mcu_msgs == [mcu.button_press(0), mcu.button_release(0)]
+
+
+def test_clip_stop_is_momentary_press_edge_only():
+    eng, rec, _ = make_engine()
+
     eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 127))
-    assert rec.mcu_msgs == [mcu.button_press(mcu.NOTE_VPOT_PUSH1 + 1)]
+    eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 0))
+
+    note = mcu.NOTE_VPOT_PUSH1 + 1
+    assert rec.mcu_msgs == [mcu.button_press(note), mcu.button_release(note)]
+
+
+def test_track_select_is_press_edge_only():
+    # The "off" edge fires when another track is chosen; it must not re-select.
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x93, apc.NOTE_TRACK_SELECT, 127))
+    eng.on_apc_message((0x93, apc.NOTE_TRACK_SELECT, 0))
+
+    note = mcu.NOTE_SELECT1 + 3
+    assert rec.mcu_msgs == [mcu.button_press(note), mcu.button_release(note)]
+
+
+def test_track_knob_wraparound_is_a_small_step():
+    eng, rec, _ = make_engine()
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 127))  # baseline at top
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 1))  # wraps to bottom = +2
+    assert rec.mcu_msgs == [mcu.vpot_delta(1, 2)]
+
+
+def test_track_knob_large_turn_is_clamped_to_step_limit():
+    # Noise gate disabled so the clamp itself is exercised.
+    eng, rec, _ = make_engine(knob_step_limit=3, knob_noise_threshold=0)
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 0))
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 40))
+    assert rec.mcu_msgs == [mcu.vpot_delta(1, 3)]
+
+
+def test_track_knob_ignores_ring_reference_jump():
+    # A feedback-driven re-reference (e.g. 51 -> 68) is not movement: drop it,
+    # then continue from the resynced baseline.
+    eng, rec, _ = make_engine(knob_noise_threshold=6)
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 51))  # baseline
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 68))  # +17 jump, dropped
+    assert rec.mcu_msgs == []
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 67))  # -1 from resync
+    assert rec.mcu_msgs == [mcu.vpot_delta(1, -1)]
 
 
 def test_transport_numbers_are_translated_not_passed_through():
@@ -90,8 +141,11 @@ def test_transport_numbers_are_translated_not_passed_through():
 
     assert rec.mcu_msgs == [
         mcu.button_press(mcu.NOTE_PLAY),
+        mcu.button_release(mcu.NOTE_PLAY),
         mcu.button_press(mcu.NOTE_STOP),
+        mcu.button_release(mcu.NOTE_STOP),
         mcu.button_press(mcu.NOTE_RECORD),
+        mcu.button_release(mcu.NOTE_RECORD),
     ]
 
 

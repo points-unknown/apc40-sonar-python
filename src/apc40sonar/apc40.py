@@ -117,6 +117,80 @@ RING_PAN = 3
 LED_OFF = 0
 LED_ON = 127
 
+# ---------------------------------------------------------------------------
+# System Exclusive: Type 0 introduction / operating mode
+# ---------------------------------------------------------------------------
+
+SYSEX_START = 0xF0
+SYSEX_END = 0xF7
+AKAI_MANUFACTURER_ID = 0x47
+APC40_PRODUCT_ID = 0x73
+APC40_INTRODUCTION = 0x60  # Type 0 message identifier
+DEVICE_ID_BROADCAST = 0x7F
+
+MODE_GENERIC = 0x40
+MODE_ABLETON = 0x41
+MODE_ALT_ABLETON = 0x42
+
+MODE_BY_NAME = {
+    "generic": MODE_GENERIC,
+    "ableton": MODE_ABLETON,
+    "alt-ableton": MODE_ALT_ABLETON,
+    "alternate-ableton": MODE_ALT_ABLETON,
+    "altableton": MODE_ALT_ABLETON,
+}
+
+
+def resolve_mode(value: str | int) -> int:
+    """Resolve a mode name or numeric/hex string to its identifier byte."""
+
+    if isinstance(value, int):
+        mode = value
+    else:
+        text = value.strip().lower()
+        if text in MODE_BY_NAME:
+            return MODE_BY_NAME[text]
+        mode = int(text, 0)  # accepts "0x41" and "65"
+
+    if mode not in (MODE_GENERIC, MODE_ABLETON, MODE_ALT_ABLETON):
+        raise ValueError(f"unknown APC40 mode: {value!r}")
+    return mode
+
+
+def build_introduction(
+    mode: int = MODE_GENERIC,
+    *,
+    major: int = 0,
+    minor: int = 1,
+    bugfix: int = 0,
+    device_id: int = DEVICE_ID_BROADCAST,
+) -> tuple[int, ...]:
+    """Build the Type 0 introduction/configuration SysEx message.
+
+    Canonical form::
+
+        F0 47 <DeviceID> 73 60 00 04 <Mode> <Major> <Minor> <Bugfix> F7
+
+    The host should send this before any other APC40-specific message. The
+    default Generic Mode (0x40) matches the validated prototype behavior; it is
+    configurable so the device can instead be driven in Ableton Live Mode.
+    """
+
+    return (
+        SYSEX_START,
+        AKAI_MANUFACTURER_ID,
+        device_id & 0x7F,
+        APC40_PRODUCT_ID,
+        APC40_INTRODUCTION,
+        0x00,
+        0x04,
+        mode & 0x7F,
+        major & 0x7F,
+        minor & 0x7F,
+        bugfix & 0x7F,
+        SYSEX_END,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Raw message builders

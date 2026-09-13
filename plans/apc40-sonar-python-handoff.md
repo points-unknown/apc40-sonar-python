@@ -32,7 +32,7 @@ costly to work around:
 | Output values are de-duplicated | Repeated identical presses were dropped | Send exactly what we intend |
 | A single `default-handler` does not reliably provide the input channel name | All inputs were silently dropped | Direct dispatch in code |
 | Interval/show timing is opaque | The startup show sometimes never completed | Explicit timing |
-| **Intermittent feedback loss** | MIDI-OX received Cakewalk feedback on `APC40-DEBUG` while MIDIMonster received nothing (loopMIDI reader starvation) | Own the port directly |
+| **Intermittent feedback loss** | MIDI-OX received Cakewalk feedback on `APC40-OUT` while MIDIMonster received nothing (loopMIDI reader starvation) | Own the port directly |
 | Opaque console output | Slow debugging | Real logging and unit tests |
 
 **Decision:** replace MIDIMonster/Lua with a Python app. Keep all protocol and design work.
@@ -64,21 +64,21 @@ Copy these into the new project (see the copy command in section 11):
 | Port | Direction | Used by |
 |---|---|---|
 | `Akai APC40` | read + write | the Python app only |
-| `APC40-MCU` | app -> Cakewalk | app writes; Cakewalk surface **In Port** |
-| `APC40-DEBUG` | Cakewalk -> app | Cakewalk surface **Out Port**; app reads |
+| `APC40-IN` | app -> Cakewalk | app writes; Cakewalk surface **In Port** |
+| `APC40-OUT` | Cakewalk -> app | Cakewalk surface **Out Port**; app reads |
 
 - loopMIDI must be running; its ports exist only while it runs.
 - Only the Python app may open the APC40 and the two loopMIDI ports.
-- Do not run MIDI-OX on `APC40-DEBUG` while the app runs (it can starve the reader).
+- Do not run MIDI-OX on `APC40-OUT` while the app runs (it can starve the reader).
 
 ---
 
 ## 5. Cakewalk by BandLab setup
 
-1. `Edit > Preferences > MIDI > Devices`: enable `APC40-MCU` and `APC40-DEBUG` in both
+1. `Edit > Preferences > MIDI > Devices`: enable `APC40-IN` and `APC40-OUT` in both
    Inputs and Outputs.
 2. `Edit > Preferences > MIDI > Control Surfaces`: add a **Mackie Control** surface with
-   **In Port = `APC40-MCU`** and **Out Port = `APC40-DEBUG`**.
+   **In Port = `APC40-IN`** and **Out Port = `APC40-OUT`**.
 3. Set *Control Strips Visible In* to **All Strips**.
 4. Set *Refresh Frequency* to **50-75 ms**.
 5. Cakewalk enumerates MIDI devices at startup; restart it after changing ports.

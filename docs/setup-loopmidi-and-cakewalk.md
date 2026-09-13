@@ -6,28 +6,28 @@ virtual MIDI ports and Cakewalk's Mackie Control surface.
 ## Topology
 
 ```text
-Akai APC40 (physical) <--MIDI--> MIDIMonster <--APC40-MCU--> Cakewalk "Mackie Control"
-                                     ^---APC40-DEBUG---'
+Akai APC40 (physical) <--MIDI--> MIDIMonster <--APC40-IN--> Cakewalk "Mackie Control"
+                                     ^---APC40-OUT---'
 ```
 
 - MIDIMonster is the **only** program that opens the physical `Akai APC40` port.
 - Cakewalk never sees the APC40 directly. It sees a standard Mackie Control device.
-- Two loopMIDI cables are used, one per direction: `APC40-MCU` (MIDIMonster -> Cakewalk)
-  and `APC40-DEBUG` (Cakewalk -> MIDIMonster).
+- Two loopMIDI cables are used, one per direction: `APC40-IN` (MIDIMonster -> Cakewalk)
+  and `APC40-OUT` (Cakewalk -> MIDIMonster).
 
 ## Port Plan
 
 | Port name | Type | Direction | Used by |
 |---|---|---|---|
 | `Akai APC40` | Physical MIDI device | read + write | MIDIMonster instance `apc40` only |
-| `APC40-MCU` | loopMIDI virtual cable | MIDIMonster -> Cakewalk | MIDIMonster instance `mcu_out` and the Cakewalk Mackie Control **In Port** |
-| `APC40-DEBUG` | loopMIDI virtual cable | Cakewalk -> MIDIMonster | MIDIMonster instance `mcu_in` and the Cakewalk Mackie Control **Out Port** |
+| `APC40-IN` | loopMIDI virtual cable | MIDIMonster -> Cakewalk | MIDIMonster instance `mcu_out` and the Cakewalk Mackie Control **In Port** |
+| `APC40-OUT` | loopMIDI virtual cable | Cakewalk -> MIDIMonster | MIDIMonster instance `mcu_in` and the Cakewalk Mackie Control **Out Port** |
 
 > **Two cables, one per direction.** Earlier revisions used a single bidirectional cable.
 > Splitting directions is more robust: only one application writes each cable, which removes
 > shared-port ambiguity between MIDIMonster and Cakewalk.
 >
-> The name `APC40-DEBUG` is historical; in the final design it carries Cakewalk feedback.
+> The name `APC40-OUT` is historical; in the final design it carries Cakewalk feedback.
 > Rename it in loopMIDI and in the generator if you prefer a clearer name.
 
 ## Step A - Install loopMIDI
@@ -41,8 +41,8 @@ Akai APC40 (physical) <--MIDI--> MIDIMonster <--APC40-MCU--> Cakewalk "Mackie Co
 ## Step B - Create the virtual ports
 
 1. Open loopMIDI.
-2. In the bottom text field, type `APC40-MCU` and click the **+** (Add) button.
-3. Add a second port named `APC40-DEBUG`.
+2. In the bottom text field, type `APC40-IN` and click the **+** (Add) button.
+3. Add a second port named `APC40-OUT`.
 4. Confirm both names appear in the list on the left.
 
 Port names must match the MIDIMonster configuration and the Cakewalk surface settings
@@ -63,15 +63,15 @@ Expected result (in addition to the physical APC40):
 MIDI OUT devices: 4
   0: Microsoft GS Wavetable Synth
   1: Akai APC40
-  ...: APC40-MCU
-  ...: APC40-DEBUG
+  ...: APC40-IN
+  ...: APC40-OUT
 MIDI IN devices: 3
   0: Akai APC40
-  ...: APC40-MCU
-  ...: APC40-DEBUG
+  ...: APC40-IN
+  ...: APC40-OUT
 ```
 
-If `APC40-MCU` / `APC40-DEBUG` are missing:
+If `APC40-IN` / `APC40-OUT` are missing:
 
 1. Confirm loopMIDI is running and the ports are listed in its window.
 2. Re-add any missing port with the `+` button.
@@ -90,7 +90,7 @@ ports until the machine is restarted. Symptoms:
 
 - `loopMIDI.exe` is running and lists the ports.
 - Windows service `teVirtualMIDI64` is `Running`.
-- Registry `HKCU\Software\Tobias Erichsen\loopMIDI\Ports` lists `APC40-MCU` and `APC40-DEBUG`.
+- Registry `HKCU\Software\Tobias Erichsen\loopMIDI\Ports` lists `APC40-IN` and `APC40-OUT`.
 - `tools\list-midi-devices.ps1` shows **no** loopMIDI ports.
 
 Fix: reboot, keep loopMIDI running, and re-run `tools\list-midi-devices.ps1`.
@@ -127,11 +127,11 @@ write = Akai APC40
 
 ; Mackie Control, MIDIMonster -> Cakewalk (Cakewalk surface In Port)
 [winmidi mcu_out]
-write = APC40-MCU
+write = APC40-IN
 
 ; Mackie Control feedback, Cakewalk -> MIDIMonster (Cakewalk surface Out Port)
 [winmidi mcu_in]
-read  = APC40-DEBUG
+read  = APC40-OUT
 
 [lua sonar]
 script = apc40-sonar.lua
@@ -149,13 +149,13 @@ midimonster.exe apc40-sonar.cfg
 ## Step D - Configure Cakewalk by BandLab
 
 1. **Enable the ports.** `Edit > Preferences > MIDI > Devices`. In the **Inputs** list check
-   `APC40-MCU` and `APC40-DEBUG`; in the **Outputs** list check `APC40-MCU` and `APC40-DEBUG`.
+   `APC40-IN` and `APC40-OUT`; in the **Outputs** list check `APC40-IN` and `APC40-OUT`.
    Click Apply.
 2. **Add the surface.** `Edit > Preferences > MIDI > Control Surfaces`.
    - Click **Add**.
    - Controller/Surface: **Mackie Control**.
-   - Input Port: `APC40-MCU`.
-   - Output Port: `APC40-DEBUG`.
+   - Input Port: `APC40-IN`.
+   - Output Port: `APC40-OUT`.
    - Leave **ACT** unchecked (ACT is handled separately if added later).
    - Click OK / Close.
 3. **Emulation mode (if offered).** Some Cakewalk builds expose a Mackie Control mode
@@ -179,23 +179,23 @@ midimonster.exe apc40-sonar.cfg
 5. Move an APC40 fader; the matching Cakewalk track volume should change.
 6. Change a track's mute with the mouse; the matching APC40 LED should update.
 
-For message-level debugging, monitor `APC40-MCU` in MIDI-OX to see MIDIMonster -> Cakewalk,
-or `APC40-DEBUG` to see Cakewalk -> MIDIMonster.
+For message-level debugging, monitor `APC40-IN` in MIDI-OX to see MIDIMonster -> Cakewalk,
+or `APC40-OUT` to see Cakewalk -> MIDIMonster.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Cakewalk cannot see `APC40-MCU` | loopMIDI not running, or port not created | Start loopMIDI; add the port; recheck `Preferences > MIDI > Devices` |
+| Cakewalk cannot see `APC40-IN` | loopMIDI not running, or port not created | Start loopMIDI; add the port; recheck `Preferences > MIDI > Devices` |
 | MIDIMonster cannot open `Akai APC40` | Another app holds the port | Close MIDI-OX, Bome, Cakewalk, Ableton |
-| MIDIMonster cannot open `APC40-MCU` | loopMIDI closed or wrong name | Start loopMIDI; verify the exact port name |
+| MIDIMonster cannot open `APC40-IN` | loopMIDI closed or wrong name | Start loopMIDI; verify the exact port name |
 | One button press triggers twice | APC40 also configured directly in Cakewalk | Remove any direct APC40 surface/device in Cakewalk |
 | LEDs flicker continuously | Feedback loop between Cakewalk output and APC40 input | Ensure only MIDIMonster routes back to the APC40; never route MCU feedback straight through |
-| Controls do nothing but LEDs work | Surface not added, or wrong In/Out port | Re-add Mackie Control with both ports set to `APC40-MCU` |
+| Controls do nothing but LEDs work | Surface not added, or wrong In/Out port | Re-add Mackie Control with both ports set to `APC40-IN` |
 
 ## Important Operational Notes
 
 - loopMIDI ports are transient: they disappear when loopMIDI exits. Always start loopMIDI
   before MIDIMonster and Cakewalk.
-- Keep exactly one Mackie Control surface bound to `APC40-MCU`.
+- Keep exactly one Mackie Control surface bound to `APC40-IN`.
 - Never add the physical `Akai APC40` as a Cakewalk device while MIDIMonster is running.

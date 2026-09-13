@@ -4,7 +4,7 @@ The engine owns no ports. It is constructed with:
 
 * *apc_out* - an :class:`apc40.Apc40Output` (renders APC40 LEDs/rings), and
 * *mcu_send* - a callable that transmits one raw MIDI message to Cakewalk
-  (the ``APC40-MCU`` cable).
+  (the ``APC40-IN`` cable).
 
 Input is fed in as raw messages through :meth:`Engine.on_apc_message` and
 :meth:`Engine.on_mcu_message`; the caller's run loop owns the ports and the
@@ -53,12 +53,24 @@ RING_STYLE_FROM_MCU = {
     mcu.RING_MODE_CENTERED: apc.RING_VOLUME,
 }
 
-# APC40 per-track buttons -> MCU button base (add the track index 0-7).
-APC_TRACK_BUTTONS = {
+# In Generic Mode the Record Arm / Solo / Activator buttons LATCH: the device
+# sends Note On when the button turns on and Note Off when it turns off (it does
+# not send an immediate off on release). Both edges are therefore a discrete
+# state change and each must emit exactly one MCU button press, or Cakewalk will
+# ignore the "off" edge and the button will appear to need two presses to clear.
+APC_TRACK_TOGGLES = {
     apc.NOTE_RECORD_ARM: mcu.NOTE_REC1,
     apc.NOTE_SOLO: mcu.NOTE_SOLO1,
     apc.NOTE_ACTIVATOR: mcu.NOTE_MUTE1,
-    apc.NOTE_TRACK_SELECT: mcu.NOTE_SELECT1,
+}
+
+# Track Selection is a radio group: only the "on" edge selects a track. The
+# "off" edge fires when a different track is chosen and must not re-select.
+APC_TRACK_SELECT = apc.NOTE_TRACK_SELECT
+APC_TRACK_SELECT_NOTE = mcu.NOTE_SELECT1
+
+# Momentary per-track buttons: act on the press edge only.
+APC_TRACK_MOMENTARY = {
     apc.NOTE_CLIP_STOP: mcu.NOTE_VPOT_PUSH1,
 }
 
@@ -86,12 +98,21 @@ class Engine:
         tracks: int = apc.TRACKS,
         rows: int = apc.ROWS,
         flash_frames: int = 6,
+        knob_step_limit: int = 3,
+        knob_noise_threshold: int = 4,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
         self.tracks = tracks
         self.rows = rows
         self.flash_frames = flash_frames
+        # Maximum V-pot steps emitted per knob event. The APC40 knobs report an
+        # absolute 0-127 position that wraps; without a limit a wrap or a fast
+        # turn produces a large delta and the parameter jumps around.
+        self.knob_step_limit = knob_step_limit
+        # Steps larger than this are treated as noise/re-reference rather than
+        # movement. 0 disables the gate.
+        self.knob_noise_threshold = knob_noise_threshold
 
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
@@ -110,13 +131,13 @@ class Engine:
         if message is not None:
             self._mcu_send(message)
 
-    def _mcu_button(self, note: int, pressed: bool) -> None:
-        """Forward a button press/release as a real Note On / Note Off pair."""
-
-        self._send_mcu(mcu.button_press(note) if pressed else mcu.button_release(note))
-
     def _mcu_click(self, note: int) -> None:
-        """A synthetic button click (for mode changes triggered internally)."""
+        """Emit one MCU button press: real Note On followed by real Note Off.
+
+        The MCU treats a note "bang" as a single button press, so this is one
+        toggle in Cakewalk. It is used for both momentary APC40 buttons and for
+        each edge of a latching APC40 toggle button.
+        """
 
         self._send_mcu(mcu.button_press(note))
         self._send_mcu(mcu.button_release(note))
@@ -155,9 +176,31 @@ class Engine:
 
     def _relative_knob(self, store: dict[int, int], index: int, value7: int) -> None:
         previous = store.get(index)
-        if previous is not None:
-            self._send_mcu(mcu.vpot_delta(index, value7 - previous))
         store[index] = value7
+        if previous is None:
+            return
+
+        delta = (value7 - previous) % 128
+        if delta > 64:
+            delta -= 128
+
+        # Whenever the host writes an endless encoder's LED ring (Cakewalk
+        # feedback arrives each refresh), the APC40 re-references that encoder's
+        # absolute value. The next reading then jumps by an amount that is not
+        # physical movement. Electrical blips look the same. Drop those events
+        # (the position is already resynced above) instead of turning them into
+        # a hard V-pot step, which is what made the parameter leap around.
+        threshold = self.knob_noise_threshold
+        if threshold and abs(delta) > threshold:
+            return
+
+        limit = self.knob_step_limit
+        if delta > limit:
+            delta = limit
+        elif delta < -limit:
+            delta = -limit
+        if delta:
+            self._send_mcu(mcu.vpot_delta(index, delta))
 
     def on_apc_note(self, channel: int, note: int, velocity: int) -> None:
         pressed = velocity > 0
@@ -170,9 +213,24 @@ class Engine:
                 row = note - apc.NOTE_CLIP_ROW1 + 1
                 self.apc.clip_pad(channel, row, apc.CLIP_GREEN if pressed else apc.CLIP_OFF)
                 return
-            base = APC_TRACK_BUTTONS.get(note)
-            if base is not None:
-                self._mcu_button(base + channel, pressed)
+            toggle = APC_TRACK_TOGGLES.get(note)
+            if toggle is not None:
+                # Note: Cakewalk's Mackie Control ignores MCU Rec note 0, so
+                # Track 1 (channel 0) cannot be armed from the surface; arm it
+                # from the Cakewalk UI instead.
+                self._mcu_click(toggle + channel)
+                return
+
+            if note == APC_TRACK_SELECT:
+                if pressed:
+                    self._mcu_click(APC_TRACK_SELECT_NOTE + channel)
+                return
+
+            momentary = APC_TRACK_MOMENTARY.get(note)
+            if momentary is not None:
+                if pressed:
+                    self._mcu_click(momentary + channel)
+                return
             return
 
         # Global controls are always on channel 0, which Track 1 also uses,
@@ -182,7 +240,8 @@ class Engine:
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)
         if mcu_note is not None:
-            self._mcu_button(mcu_note, pressed)
+            if pressed:
+                self._mcu_click(mcu_note)
             return
 
         if not pressed:

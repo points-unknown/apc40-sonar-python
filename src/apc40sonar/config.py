@@ -14,9 +14,12 @@ Lookup order for the ``.env`` file:
 Recognized keys (all optional; defaults match the documented topology):
 
     APC40_PORT        physical controller       default: Akai APC40
-    MCU_OUT_PORT      app -> Cakewalk            default: APC40-MCU
-    MCU_IN_PORT       Cakewalk -> app            default: APC40-DEBUG
+    MCU_OUT_PORT      app -> Cakewalk            default: APC40-IN
+    MCU_IN_PORT       Cakewalk -> app            default: APC40-OUT
     APC40_CLIENT_NAME client name shown to WinMM default: apc40sonar
+    APC40_MODE        APC40 operating mode        default: generic
+    KNOB_STEP_LIMIT   max V-pot steps per knob event default: 3
+    KNOB_NOISE_THRESHOLD  steps above this are ignored  default: 4
 """
 
 from __future__ import annotations
@@ -29,9 +32,12 @@ ENV_VAR = "APC40SONAR_ENV"
 
 DEFAULTS = {
     "APC40_PORT": "Akai APC40",
-    "MCU_OUT_PORT": "APC40-MCU",
-    "MCU_IN_PORT": "APC40-DEBUG",
+    "MCU_OUT_PORT": "APC40-IN",
+    "MCU_IN_PORT": "APC40-OUT",
     "APC40_CLIENT_NAME": "apc40sonar",
+    "APC40_MODE": "generic",
+    "KNOB_STEP_LIMIT": "3",
+    "KNOB_NOISE_THRESHOLD": "4",
 }
 
 
@@ -43,6 +49,9 @@ class Config:
     mcu_out_port: str
     mcu_in_port: str
     client_name: str
+    apc40_mode: str
+    knob_step_limit: int
+    knob_noise_threshold: int
     env_path: Path | None = None
 
 
@@ -91,6 +100,15 @@ def find_env_file(cwd: Path | None = None, environ: dict[str, str] | None = None
     return None
 
 
+def _as_int(values: dict[str, str], key: str, default: int) -> int:
+    """Parse an integer setting (decimal or 0x-prefixed), falling back to *default*."""
+
+    try:
+        return int(str(values[key]).strip(), 0)
+    except (KeyError, ValueError):
+        return default
+
+
 def load_config(
     env_path: Path | None = None,
     cwd: Path | None = None,
@@ -124,5 +142,8 @@ def load_config(
         mcu_out_port=values["MCU_OUT_PORT"],
         mcu_in_port=values["MCU_IN_PORT"],
         client_name=values["APC40_CLIENT_NAME"],
+        apc40_mode=values["APC40_MODE"],
+        knob_step_limit=_as_int(values, "KNOB_STEP_LIMIT", 3),
+        knob_noise_threshold=_as_int(values, "KNOB_NOISE_THRESHOLD", 4),
         env_path=resolved,
     )

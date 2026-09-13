@@ -92,3 +92,36 @@ def test_clear_all_turns_everything_off():
     assert len(note_offs) == 109
     # 8 knobs * (track position + track style + device position + device style) = 32
     assert len(cc_offs) == 32
+
+
+def test_build_introduction_generic_mode_is_exact():
+    message = apc.build_introduction(apc.MODE_GENERIC, major=0, minor=1, bugfix=0)
+    assert message == (
+        0xF0,
+        0x47,
+        0x7F,
+        0x73,
+        0x60,
+        0x00,
+        0x04,
+        0x40,
+        0x00,
+        0x01,
+        0x00,
+        0xF7,
+    )
+
+
+def test_resolve_mode_accepts_names_and_numeric_forms():
+    assert apc.resolve_mode("generic") == apc.MODE_GENERIC
+    assert apc.resolve_mode("Ableton") == apc.MODE_ABLETON
+    assert apc.resolve_mode("alt-ableton") == apc.MODE_ALT_ABLETON
+    assert apc.resolve_mode("0x42") == apc.MODE_ALT_ABLETON
+    assert apc.resolve_mode(apc.MODE_ABLETON) == apc.MODE_ABLETON
+
+
+def test_resolve_mode_rejects_unknown_value():
+    import pytest
+
+    with pytest.raises(ValueError):
+        apc.resolve_mode("nope")
