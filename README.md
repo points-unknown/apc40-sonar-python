@@ -21,14 +21,21 @@ Design and reference material:
 
 ## Status
 
-Foundation stage. Implemented:
+Mixer core implemented and unit-tested (55 tests, no hardware required):
 
 - `midi_io` - port enumeration, case-insensitive name resolution, open helpers
 - `config` - port names loaded from an editable `.env` (no hard-coded names, no reboot to change)
+- `apc40` - note/CC constants, color and ring values, message builders, and a
+  cached/forced output renderer for LEDs and rings
+- `mcu` - MCU encoders (real Note On/Off buttons, 14-bit faders, relative V-pot
+  deltas, packed ring bytes) and decoders
+- `engine` - mixer core: faders, strip buttons, transport, clip grid, knob modes
+  (Pan/Send A/B/C with ring styles and pan centering), MCU feedback rendering,
+  and momentary flashes
 - `--list-ports` - prints live ports and verifies the configured names resolve
-- unit tests for both modules
 
-Encoder/decoder, engine, and lightshow are next (see the plan).
+Next: run loop and the startup lightshow (ported from `reference/baseline/`), then
+end-to-end validation with Cakewalk. See the plan.
 
 ## Requirements
 
@@ -77,6 +84,29 @@ run-apc40-sonar.cmd --list-ports
 Expected: the physical APC40 and both loopMIDI cables are present and all three
 configured ports report `[OK]`. The command exits non-zero if any configured port is
 missing.
+
+### Verify the APC40 link
+
+This open the physical APC40 and plays the startup lightshow, then leaves the surface in
+its ready state (Pan mode, centered rings, Master + Scene 5 lit) and exits. It does not
+need loopMIDI:
+
+```bat
+uv run apc40sonar --lightshow
+```
+
+### Run the engine
+
+Opens the physical APC40 (read+write) plus the two loopMIDI cables and runs the
+bidirectional loop. If the loopMIDI ports are missing it warns and runs APC40-only:
+
+```bat
+uv run apc40sonar               REM show, then run
+uv run apc40sonar --no-show     REM skip the show
+uv run apc40sonar --monitor     REM also print incoming MIDI
+```
+
+Stop with Ctrl+C.
 
 ## Tests
 
