@@ -1,0 +1,26 @@
+[project]
+name = "apc40sonar"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "python-rtmidi>=1.5.8",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+apc40sonar = "apc40sonar:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
