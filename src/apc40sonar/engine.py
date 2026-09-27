@@ -42,6 +42,13 @@ KNOB_MODE_ASSIGN = {
     "send_c": mcu.NOTE_ASSIGN_SEND,
 }
 
+# Cakewalk lists 4 parameters per send (enable, level, ...) and the knobs sit on
+# one of them across 8 tracks; the level of send n is parameter 4*(n-1) + 1.
+KNOB_MODE_SEND_PARAM = {"send_a": 1, "send_b": 5, "send_c": 9}
+
+# MCU assignment LED -> Cakewalk assignment name (from its feedback).
+ASSIGN_LED = {mcu.NOTE_ASSIGN_PAN: "pan", mcu.NOTE_ASSIGN_SEND: "send"}
+
 KNOB_MODE_RING_STYLE = {
     "pan": apc.RING_PAN,
     "send_a": apc.RING_VOLUME,
@@ -190,6 +197,13 @@ class Engine:
         self.bank = 0  # informational track-bank offset
         self.show_running = False
         self.shift = False
+        # Cakewalk's current assignment ("pan", "send", another, or None =
+        # unknown) and Edit mode, both from its LEDs. Pressing the assignment
+        # that is already active flips Cakewalk's knobs to single-track
+        # (channel strip) layout, which it never reports, so the engine only
+        # presses an assignment button when switching.
+        self._cw_assign: str | None = None
+        self._cw_edit = False
         # Last loop LED state from Cakewalk, shown on the Metronome button.
         self._loop_led = apc.LED_OFF
 
@@ -504,7 +518,9 @@ class Engine:
             raise ValueError(f"unknown knob mode: {mode!r}")
 
         self.knob_mode = mode
-        self._mcu_click(KNOB_MODE_ASSIGN[mode])
+        self._select_assignment(KNOB_MODE_ASSIGN[mode])
+        if mode in KNOB_MODE_SEND_PARAM:
+            self._select_send_param(KNOB_MODE_SEND_PARAM[mode])
 
         # Exactly one mode button lit; the device toggles them locally, so the
         # writes must be forced past the change cache.
@@ -522,6 +538,43 @@ class Engine:
         if mode == "pan":
             for knob in range(1, self.tracks + 1):
                 self.apc.ring_position(apc.track_ring_cc(knob), 63, force=True)
+
+    def _select_assignment(self, note: int) -> None:
+        """Make *note*'s assignment active without ever re-pressing it.
+
+        When the current assignment is unknown (startup), step through
+        Dynamics first, which this app never uses, so the final press is
+        always a switch and never a layout flip.
+        """
+
+        target = ASSIGN_LED[note]
+        if self._cw_assign == target:
+            return
+        if self._cw_assign is None:
+            self._mcu_click(mcu.NOTE_CW_DYNAMICS)
+        self._mcu_click(note)
+        self._cw_assign = target
+
+    def _select_send_param(self, param: int) -> None:
+        """Point the send knobs at parameter *param* (1, 5, 9 = sends 1-3).
+
+        Edit mode turns Bank/Channel Left/Right into parameter moves: M1 +
+        Bank Left goes to the first parameter, Bank Right is +8 and Channel
+        Right +1. Cakewalk stops at the last parameter a track has.
+        """
+
+        if not self._cw_edit:
+            self._mcu_click(mcu.NOTE_CW_EDIT)
+        self._send_mcu(mcu.button_press(mcu.NOTE_M1))
+        self._mcu_click(mcu.NOTE_BANK_LEFT)
+        self._send_mcu(mcu.cakewalk_release(mcu.NOTE_M1))
+        eights, ones = divmod(param, 8)
+        for _ in range(eights):
+            self._mcu_click(mcu.NOTE_BANK_RIGHT)
+        for _ in range(ones):
+            self._mcu_click(mcu.NOTE_CHANNEL_RIGHT)
+        self._mcu_click(mcu.NOTE_CW_EDIT)  # leave Edit mode
+        self._cw_edit = False
 
     # ------------------------------------------------------------------
     # MCU feedback
@@ -561,6 +614,13 @@ class Engine:
             self.apc.global_note(apc.NOTE_STOP, on, force=True)
         elif note == mcu.NOTE_RECORD:
             self.apc.global_note(apc.NOTE_RECORD, on, force=True)
+        elif note in ASSIGN_LED:
+            if state != "off":
+                self._cw_assign = ASSIGN_LED[note]
+            elif self._cw_assign == ASSIGN_LED[note]:
+                self._cw_assign = "other"
+        elif note == mcu.NOTE_CW_EDIT:
+            self._cw_edit = state != "off"
         elif note == mcu.NOTE_ZOOM:
             self._zoom_mode = state != "off"
         elif note == mcu.NOTE_CW_LOOP:

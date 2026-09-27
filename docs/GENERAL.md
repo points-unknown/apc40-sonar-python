@@ -110,7 +110,7 @@ Process-environment values override the file, so a one-off run can use
 | Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
 | Crossfader (CC 15, absolute) | Horizontal zoom via MCU Zoom 100 + Cursor Left/Right (see below) |
 | Cue Level (CC 47, relative) | Jog CC 60: one message per detent (max 4 per event), `0x01` forward / `0x41` back |
-| Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 + ring style |
+| Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 (only when switching), then send 1/2/3 selection (see below) + ring style |
 
 **Cakewalk mode renames some MCU buttons.** With the *Cakewalk/SONAR Mode* protocol,
 Cakewalk's Mackie Control uses its own button table, and a few notes differ from the
@@ -131,6 +131,30 @@ step.
 Left/Right, 96-99) 0.4 s after the press and then every 50-500 ms until it sees the
 release. It drops real Note Offs, so the engine releases cursor keys with Note On
 velocity 0, like Loop; otherwise one Bank Select Up/Down press would keep repeating.
+
+### Knob modes: Pan and Send A / B / C
+
+Cakewalk's assignment buttons (Pan 42, Send 41, ...) have a trap: pressing the one that is
+**already active** flips the knobs between *one parameter across 8 tracks* (what the APC40
+wants) and *8 parameters of the selected track* (channel strip). That layout is shared by
+every assignment, never reset, and never reported back. So the engine:
+
+- tracks Cakewalk's assignment from its Pan/Send LEDs (notes 42/41) and presses an
+  assignment button **only when switching**;
+- when the assignment is unknown (startup), presses **Dynamics** (45, unused here) first,
+  so the Pan press is always a switch, never a re-press.
+
+Send A / B / C choose the send with Cakewalk's **Edit** mode (note 51, tracked from its
+LED). Cakewalk lists 4 parameters per send and the knobs start on send 1's level
+(parameter 1), so sends 1 / 2 / 3 are parameters 1 / 5 / 9. The engine turns Edit on,
+presses M1 + Bank Left (go to the first parameter), steps with Bank Right (+8) and Channel
+Right (+1), then turns Edit off. Pressing a lit Send button again re-runs the selection.
+Cakewalk clamps at a track's last parameter, so a track with fewer sends stays on its last
+one. Only sends 1-3 are reachable; reorder sends in Cakewalk to control others.
+
+The layout is not saved with the project; Cakewalk starts every session in the 8-track
+layout. If the knobs ever control one track's parameters instead of 8 tracks (for example
+left over from an older build that re-pressed the assignment), restart Cakewalk.
 
 ### Crossfader zoom
 

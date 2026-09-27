@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 126 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 133 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -112,8 +112,9 @@ Tasks:
         channels 0-8 and writes utility-row LEDs to all nine banks (done)
 - [ ] Assign Plug-in (43), EQ (44), Instrument (45) plus V-pot CC 16-23
 - [ ] Render MCU ring feedback to the **Device** rings (CC 16-23 + style 24-31) in device mode
-- [ ] Send A/B/C selection: choose which send the Track Control knobs address (Assign Send 41)
-  and show the send level in the rings
+- [x] Send A/B/C select sends 1/2/3 (Edit mode + parameter moves), and assignment buttons
+  are only pressed when switching, so the knobs never flip to channel-strip layout (done)
+  - [x] Verified on hardware
 
 ### Navigation and transport
 
@@ -191,8 +192,8 @@ Ordered roughly by value-to-effort:
         (parameter page, bypass)
   - [ ] Update `docs/setup-loopmidi-and-cakewalk.md` and `docs/GENERAL.md` with the
         optional second surface
-- [ ] **Send-level control with rings** - Send A/B/C buttons plus the Track Control knobs
-      set send levels, with the rings showing the send amount.
+- [x] **Send-level control with rings** - Send A/B/C buttons plus the Track Control knobs
+      set send 1/2/3 levels, with the rings showing the send amount (done).
 - [ ] **Session/bank overview on the grid** - use the 8x5 grid to show which bank of tracks
       is active and which clips/scenes exist, instead of blank pads.
 - [ ] **Shift modifiers** - Shift + strip button = alternate action (e.g. Shift+Mute =

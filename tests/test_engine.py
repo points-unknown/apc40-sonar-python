@@ -21,6 +21,10 @@ class Recorder:
         self.mcu_msgs.append(tuple(message))
 
 
+def click(note):
+    return [mcu.button_press(note), mcu.button_release(note)]
+
+
 def make_engine(**kwargs):
     rec = Recorder()
     out = apc.Apc40Output(rec.apc_send)
@@ -177,7 +181,11 @@ def test_knob_mode_pan_lights_leds_sets_style_and_centers_rings():
 
     eng.set_knob_mode("pan")
 
+    # Cakewalk's assignment is unknown at first: step through Dynamics so the
+    # Pan press is a switch, never a re-press (which flips the layout).
     assert rec.mcu_msgs == [
+        mcu.button_press(mcu.NOTE_CW_DYNAMICS),
+        mcu.button_release(mcu.NOTE_CW_DYNAMICS),
         mcu.button_press(mcu.NOTE_ASSIGN_PAN),
         mcu.button_release(mcu.NOTE_ASSIGN_PAN),
     ]
@@ -196,12 +204,10 @@ def test_knob_mode_pan_lights_leds_sets_style_and_centers_rings():
 def test_knob_mode_send_bypasses_centering():
     eng, rec, _ = make_engine()
 
+    eng.on_mcu_message((0x90, mcu.NOTE_ASSIGN_PAN, 127))  # Cakewalk is in Pan
     eng.set_knob_mode("send_a")
 
-    assert rec.mcu_msgs == [
-        mcu.button_press(mcu.NOTE_ASSIGN_SEND),
-        mcu.button_release(mcu.NOTE_ASSIGN_SEND),
-    ]
+    assert rec.mcu_msgs[:2] == click(mcu.NOTE_ASSIGN_SEND)
     assert (0x90, apc.NOTE_SEND_A, 127) in rec.apc_msgs
 
     styles = [m for m in rec.apc_msgs if m[1] in range(56, 64)]
@@ -648,10 +654,6 @@ def test_master_fader_channel_is_not_significant():
 # ---------------------------------------------------------------------------
 
 
-def click(note):
-    return [mcu.button_press(note), mcu.button_release(note)]
-
-
 def test_bank_left_right_move_the_strip_window_by_eight():
     eng, rec, _ = make_engine()
 
@@ -932,3 +934,101 @@ def test_fast_sweep_is_capped():
 
     steps = [m for m in rec.mcu_msgs if m == (0x90, mcu.NOTE_RIGHT, 127)]
     assert len(steps) == engine_mod.ZOOM_STEP_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# Send A / B / C select their own send
+# ---------------------------------------------------------------------------
+
+
+def send_param(steps_8, steps_1):
+    """Edit on, first parameter, step to the target, Edit off."""
+    return [
+        *click(mcu.NOTE_CW_EDIT),
+        (0x90, mcu.NOTE_M1, 127),
+        *click(mcu.NOTE_BANK_LEFT),
+        (0x90, mcu.NOTE_M1, 0),
+        *click(mcu.NOTE_BANK_RIGHT) * steps_8,
+        *click(mcu.NOTE_CHANNEL_RIGHT) * steps_1,
+        *click(mcu.NOTE_CW_EDIT),
+    ]
+
+
+def in_pan(eng, rec):
+    eng.on_mcu_message((0x90, mcu.NOTE_ASSIGN_PAN, 127))
+    rec.mcu_msgs.clear()
+
+
+def test_send_a_b_c_point_the_knobs_at_send_1_2_3_levels():
+    for mode, param in (("send_a", (0, 1)), ("send_b", (0, 5)), ("send_c", (1, 1))):
+        eng, rec, _ = make_engine()
+        in_pan(eng, rec)
+
+        eng.set_knob_mode(mode)
+
+        assert rec.mcu_msgs == click(mcu.NOTE_ASSIGN_SEND) + send_param(*param), mode
+
+
+def test_switching_between_sends_never_repeats_assign_send():
+    eng, rec, _ = make_engine()
+    in_pan(eng, rec)
+
+    eng.set_knob_mode("send_a")
+    eng.set_knob_mode("send_b")
+    eng.set_knob_mode("send_b")  # pressing again just re-anchors
+
+    presses = [m for m in rec.mcu_msgs if m == mcu.button_press(mcu.NOTE_ASSIGN_SEND)]
+    assert len(presses) == 1
+    assert rec.mcu_msgs[-len(send_param(0, 5)):] == send_param(0, 5)
+
+
+def test_pan_is_not_repressed_when_cakewalk_is_already_in_pan():
+    eng, rec, _ = make_engine()
+    in_pan(eng, rec)
+
+    eng.set_knob_mode("pan")
+
+    assert rec.mcu_msgs == []
+
+
+def test_send_to_pan_switches_back_once():
+    eng, rec, _ = make_engine()
+    in_pan(eng, rec)
+    eng.set_knob_mode("send_c")
+    rec.mcu_msgs.clear()
+
+    eng.set_knob_mode("pan")
+
+    assert rec.mcu_msgs == click(mcu.NOTE_ASSIGN_PAN)
+
+
+def test_edit_already_on_is_not_toggled_off_before_selecting():
+    eng, rec, _ = make_engine()
+    in_pan(eng, rec)
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_EDIT, 127))  # user left Edit on
+
+    eng.set_knob_mode("send_a")
+
+    # No leading Edit press; the sequence still ends by leaving Edit mode.
+    expected = click(mcu.NOTE_ASSIGN_SEND) + send_param(0, 1)[2:]
+    assert rec.mcu_msgs == expected
+
+
+def test_assignment_follows_cakewalk_leds():
+    eng, rec, _ = make_engine()
+    eng.on_mcu_message((0x90, mcu.NOTE_ASSIGN_SEND, 127))
+    rec.mcu_msgs.clear()
+
+    eng.set_knob_mode("send_a")
+
+    assert mcu.button_press(mcu.NOTE_ASSIGN_SEND) not in rec.mcu_msgs
+
+
+def test_send_button_press_on_apc_selects_its_send():
+    eng, rec, _ = make_engine()
+    in_pan(eng, rec)
+
+    eng.on_apc_message((0x90, apc.NOTE_SEND_B, 127))
+
+    assert eng.knob_mode == "send_b"
+    assert rec.mcu_msgs == click(mcu.NOTE_ASSIGN_SEND) + send_param(0, 5)

@@ -81,6 +81,8 @@ NOTE_SCRUB = 101
 # the standard MCU labels above. Cakewalk has no Click (metronome) button.
 NOTE_CW_LOOP = 89  # standard "Click": transport loop on/off; LED = loop state
 NOTE_CW_HOME = 90  # standard "Solo": go to start
+NOTE_CW_DYNAMICS = 45  # standard "Instrument": Dynamics assignment
+NOTE_CW_EDIT = 51  # standard "Global": Edit mode (Bank/Channel move the parameter)
 
 NOTE_FADER_TOUCH1 = 104  # 104-111, master = 112
 NOTE_MASTER_FADER_TOUCH = 112

@@ -59,11 +59,13 @@ Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.
 | Knob mode | Knobs control | Rings show | Status |
 |---|---|---|---|
 | **Pan** | Track pan | Pan style, centered at startup; then Cakewalk's value | **Live** |
-| **Send A** | Track send level | Fill style, Cakewalk's value | **Live** |
-| **Send B** | Same as Send A: Cakewalk picks which send | Fill style | *Provisional* (B = A) |
-| **Send C** | Same as Send A: Cakewalk picks which send | Fill style | *Provisional* (C = A) |
+| **Send A** | Level of each track's **send 1** | Fill style, Cakewalk's value | **Live** |
+| **Send B** | Level of each track's **send 2** | Fill style, Cakewalk's value | **Live** |
+| **Send C** | Level of each track's **send 3** | Fill style, Cakewalk's value | **Live** |
 
-Planned: Send A/B/C each address their own send.
+Only the first three sends on a track are reachable. To control a later send, move it into
+one of the top three slots in Cakewalk. On a track with fewer sends, the knob stays on its
+last send.
 
 ### Device Control knobs (bottom right, x8)
 
@@ -87,7 +89,7 @@ Planned: Send A/B/C each address their own send.
 | Button | Action | LED | Status |
 |---|---|---|---|
 | **Pan** | Knob mode = Pan (MCU Assign Pan) | Only the active mode button is lit | **Live** |
-| **Send A / B / C** | Knob mode = Send (MCU Assign Send) | Only the active mode button is lit | **Live** (B/C same as A) |
+| **Send A / B / C** | Knob mode = send 1 / 2 / 3 level. Pressing the lit one again re-selects its send | Only the active mode button is lit | **Live** |
 
 ## Utility row (under the Device Control knobs)
 
