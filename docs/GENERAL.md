@@ -48,6 +48,11 @@ APC40 hardware <--rtmidi--> engine <--rtmidi--> APC40-IN  --> Cakewalk (Mackie C
 | `mcu` | Mackie Control encoders (real Note On/Off, 14-bit faders, relative V-pot deltas, packed ring bytes) and decoders |
 | `engine` | State machine and translation: faders, strip buttons, transport, clip grid, knob modes, feedback rendering, level meters, flashes |
 | `lightshow` | The startup lightshow (lights every host-addressable control, then blacks out) |
+| `mcu_display` | Decoders for Cakewalk's MCU LCD SysEx and 7-segment timecode/assignment CCs (HUD only) |
+| `hud_state` | `HudSnapshot`, the immutable engine state the HUD shows |
+| `hud_link` | The only HUD I/O: UDP JSON publisher/receiver on 127.0.0.1 and the HUD child-process supervisor |
+| `hud_view` | Pure HUD view model: snapshot to strings/colors, toast timing, window placement |
+| `hud` | The tkinter HUD window, run as its own process (`python -m apc40sonar.hud`) |
 | `logging_setup` | Rotating file log plus console warnings |
 | `__main__` | CLI, port opening, the event loop, and signal/error handling |
 
@@ -69,6 +74,16 @@ Port names and options live in `.env` at the repository root (copy
 | `METER_DECAY_MS` | `300` | Meter fall time per level, like a real MCU |
 | `ZOOM_STEP_UNITS` | `6` | Crossfader travel (0-127 scale) per zoom step; lower = faster zoom |
 | `ZOOM_IDLE_MS` | `300` | Leave Cakewalk's zoom mode this long after the crossfader stops |
+| `HUD` | `off` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
+| `HUD_PORT` | `47040` | UDP port on 127.0.0.1 between the app and the HUD |
+| `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-left` / `bottom-right`, or `x,y` on the monitor |
+| `HUD_MONITOR` | `0` | Monitor index for placement (0 = primary) |
+| `HUD_OPACITY` | `0.85` | Window alpha, 0.2-1.0 |
+| `HUD_TOPMOST` | `on` | Keep the HUD above other windows |
+| `HUD_CLICK_THROUGH` | `off` | Mouse passes through the HUD (it can then only be moved via `HUD_POSITION`) |
+| `HUD_LAYOUT` | `compact` | `compact` (mode, transport, badges, toasts) or `expanded` (adds the 8 strips) |
+| `HUD_TOAST_MS` | `1200` | How long an action toast stays visible |
+| `HUD_LCD` | `on` | Receive Cakewalk's LCD SysEx on the MCU input (track names, values, messages) |
 
 Lookup order for the file: the path in `APC40SONAR_ENV`, then `.env`, then `config/.env`.
 Process-environment values override the file, so a one-off run can use
@@ -83,6 +98,8 @@ Process-environment values override the file, so a one-off run can use
 | `uv run apc40sonar` | Full engine: lightshow, then the APC40 <-> Cakewalk event loop |
 | `uv run apc40sonar --no-show` | Skip the lightshow |
 | `uv run apc40sonar --monitor` | Also print incoming and outgoing MIDI (`apc:`/`mcu:` in, `apc>`/`mcu>` out) |
+| `uv run apc40sonar --hud` | Also show the on-screen HUD (`--no-hud` overrides `HUD=on`) |
+| `uv run python -m apc40sonar.hud` | Start a HUD by hand and attach it to a running app |
 | `uv run apc40sonar --env PATH` | Use an explicit `.env` file |
 
 `run-apc40-sonar.cmd` is a launcher that finds `uv` on `PATH` or falls back to
@@ -304,6 +321,37 @@ operating mode. The lightshow then lights every host-addressable control and bla
 and `render_baseline()` leaves the surface ready: Pan mode, both ring banks centered,
 Master and Scene 5 lit. Stop All Clips (note 81) has no host-addressable LED and is not
 used; it is acknowledged by flashing the Stop LED and the eight Clip Stop LEDs.
+
+### On-screen HUD
+
+The APC40 has no display, so an optional always-on-top window shows what the
+controller is doing and what Cakewalk reports. Enable it with `HUD=on` or `--hud`.
+Design notes: [`plans/hud-concept.md`](../plans/hud-concept.md).
+
+- **Compact:** knob mode (`PAN` / `SEND A (1)` ...), strip window (`Trk 9-16`),
+  selected track, transport, BBT/SMPTE time, the Cakewalk assignment display, badges
+  (Loop, Zoom mode, Cakewalk meters, Shift), a toast for actions with no LED feedback
+  (`Bank >`, `Send B`, `Go to start`, `Metronome (rec) toggled`, Cakewalk's
+  `Track 12: "Vocals"` messages ...), and a status line (`no link`, `Cakewalk idle`,
+  `Strip layout!` when the assignment dot shows Cakewalk flipped the knobs).
+- **Expanded** adds the 8 strips: LCD name (a V-pot value peek briefly replaces it,
+  in white), lower LCD line (param label or value, per Cakewalk's Name/Value state),
+  R/S/M dots, a level meter with clip marker, and the selected strip highlighted.
+- Drag with the left mouse button; right-click for layout, opacity and Quit. The window
+  never takes keyboard focus from Cakewalk.
+
+How it works: the engine keeps a pure `HudSnapshot` (`Engine.hud_snapshot()`); the run
+loop sends it as one UDP JSON datagram to 127.0.0.1 when it changed, at most every
+50 ms, plus a 1 s heartbeat. The HUD is a separate process (launched with
+`CREATE_NO_WINDOW`, respawned up to 3 times, closed with the app), so a HUD crash,
+hang or window drag can never stall MIDI. `HUD_LCD=on` stops ignoring SysEx on the
+MCU input only.
+
+Cakewalk never reports the strip-window offset. The HUD derives it from a track select:
+Cakewalk lights the strip's Select LED and shows `Track N: "name"`, so offset =
+N - 1 - strip. Bank/Channel presses shift it provisionally (shown as `Trk ~9-16`) until
+the next select confirms it; before the first select it shows `Trk ?`. The Metronome
+(F1) toggle has no Cakewalk feedback, so the HUD can only echo that it was pressed.
 
 ## Logging
 

@@ -49,6 +49,7 @@ APC40_CLIENT_NAME=apc40sonar
 APC40_MODE=generic           # generic | ableton | alt-ableton
 KNOB_STEP_LIMIT=3            # max V-pot steps per knob event
 KNOB_NOISE_THRESHOLD=4       # ignore knob steps larger than this (0 disables)
+HUD=off                      # on = small always-on-top status window
 ```
 
 The full key reference, behavior notes, and architecture are in

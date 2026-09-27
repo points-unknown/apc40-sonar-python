@@ -19,10 +19,13 @@ buttons now use real Note On (press) / Note Off (release) pairs.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Callable, Sequence
 
 from . import apc40 as apc
+from . import hud_state
 from . import mcu
+from . import mcu_display
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +149,29 @@ CUE_JOG_STEP_LIMIT = 4
 # Buttons whose LED flashes to acknowledge a press (no host feedback exists).
 APC_FLASH_ON_PRESS = frozenset({apc.NOTE_LEFT, apc.NOTE_RIGHT})
 
+# MCU per-strip LED notes: (first note, HUD key, APC40 per-track button).
+STRIP_LEDS = (
+    (mcu.NOTE_REC1, "rec", apc.NOTE_RECORD_ARM),
+    (mcu.NOTE_SOLO1, "solo", apc.NOTE_SOLO),
+    (mcu.NOTE_MUTE1, "mute", apc.NOTE_ACTIVATOR),
+    (mcu.NOTE_SELECT1, "select", apc.NOTE_TRACK_SELECT),
+)
+
+# Surface navigation presses -> (strip window move, HUD toast). Cakewalk does
+# not report the window offset, so the HUD shows it as provisional until the
+# next track select confirms it.
+BANK_MOVES = {
+    mcu.NOTE_BANK_LEFT: (-8, "Bank <"),
+    mcu.NOTE_BANK_RIGHT: (8, "Bank >"),
+    mcu.NOTE_CHANNEL_LEFT: (-1, "Channel <"),
+    mcu.NOTE_CHANNEL_RIGHT: (1, "Channel >"),
+}
+
+# Other presses with no Cakewalk feedback, echoed as HUD toasts.
+PRESS_TOASTS = {mcu.NOTE_F1: "Metronome (rec) toggled"}
+
+TOAST_HISTORY = 8
+
 
 class Engine:
     """Translate APC40 controls to MCU messages and MCU feedback to LEDs."""
@@ -166,6 +192,8 @@ class Engine:
         stop_double_frames: int = 20,
         zoom_step_units: int = 6,
         zoom_idle_frames: int = 15,
+        link_idle_frames: int = 250,
+        peek_frames: int = 125,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -194,10 +222,13 @@ class Engine:
         # Cakewalk's zoom mode is switched back off.
         self.zoom_step_units = max(1, zoom_step_units)
         self.zoom_idle_frames = max(1, zoom_idle_frames)
+        # HUD: Cakewalk counts as active while it sent feedback this recently,
+        # and an LCD name change this soon after a V-pot turn is a value peek.
+        self.link_idle_frames = link_idle_frames
+        self.peek_frames = peek_frames
 
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
-        self.bank = 0  # informational track-bank offset
         self.show_running = False
         self.shift = False
         # Cakewalk's current assignment ("pan", "send", another, or None =
@@ -238,6 +269,29 @@ class Engine:
         # here and turned into a select once it goes quiet.
         self._knob_dump: dict[int, set[int]] = {}
         self._knob_dump_frame = 0
+
+        # HUD state: what Cakewalk reports (LEDs, LCD, 7-segments) and what
+        # the engine did, kept for the on-screen display (hud_snapshot).
+        self.lcd = mcu_display.LcdBuffer()
+        self.seven_seg = mcu_display.SevenSeg()
+        self._play_led = False
+        self._record_led = False
+        self._strip_leds = {key: [False] * tracks for _first, key, _note in STRIP_LEDS}
+        self._last_mcu_frame: int | None = None
+        self._toasts: deque[tuple[int, str]] = deque(maxlen=TOAST_HISTORY)
+        self._toast_id = 0
+        self._temp_message: str | None = None
+        self._stable_names = [""] * tracks
+        self._peek = [""] * tracks
+        self._vpot_frame: list[int | None] = [None] * tracks
+        self._selected_track: int | None = None
+        self._selected_name = ""
+        # Track number from Cakewalk's 'Track N: "name"' message, cleared by
+        # a strip window move, and the strip this app last selected.
+        self._pending_track: int | None = None
+        self._select_press: tuple[int, int] | None = None  # (strip, frame)
+        self.bank_offset: int | None = None
+        self._bank_exact = False
 
     # ------------------------------------------------------------------
     # MCU output helpers
@@ -349,6 +403,8 @@ class Engine:
             delta = -limit
         if delta:
             self._send_mcu(mcu.vpot_delta(index, delta))
+            if index <= self.tracks:
+                self._vpot_frame[index - 1] = self._frame
 
     def on_apc_note(self, channel: int, note: int, velocity: int) -> None:
         pressed = velocity > 0
@@ -373,7 +429,7 @@ class Engine:
 
             if note == APC_TRACK_SELECT:
                 if pressed:
-                    self._mcu_click(APC_TRACK_SELECT_NOTE + channel)
+                    self._select_strip(channel)
                 return
 
             momentary = APC_TRACK_MOMENTARY.get(note)
@@ -418,6 +474,7 @@ class Engine:
             shifted = APC_SHIFT_BUTTONS.get(note)
             if shifted is not None:
                 self._mcu_click(shifted)
+                self._after_press(shifted)
                 if note in APC_FLASH_ON_PRESS:
                     self._flash_global(note)
                 return
@@ -430,6 +487,7 @@ class Engine:
         if mcu_note is not None:
             if pressed:
                 self._mcu_click(mcu_note)
+                self._after_press(mcu_note)
                 if note in APC_FLASH_ON_PRESS:
                     self._flash_global(note)
             return
@@ -442,6 +500,7 @@ class Engine:
             self._mcu_click(mcu.NOTE_STOP)
             self.clear_meter_clips()
             self.flash_stop_all()
+            self.toast("Stop all")
         elif note == apc.NOTE_PAN:
             self.set_knob_mode("pan")
         elif note == apc.NOTE_SEND_A:
@@ -484,6 +543,7 @@ class Engine:
             self._send_mcu(mcu.button_press(mcu.NOTE_M4))
             self._mcu_click(mcu.NOTE_RIGHT)
             self._send_mcu(mcu.cakewalk_release(mcu.NOTE_M4))
+            self.toast("Zoom: fit project")
             return
 
         self._zoom_accum += value - previous
@@ -533,7 +593,27 @@ class Engine:
             return
         (channel, ccs), = dump.items()
         if len(ccs) == self.tracks and channel < self.tracks:
-            self._mcu_click(APC_TRACK_SELECT_NOTE + channel)
+            self._select_strip(channel)
+
+    def _select_strip(self, strip: int) -> None:
+        self._mcu_click(APC_TRACK_SELECT_NOTE + strip)
+        self._select_press = (strip, self._frame)
+
+    def _after_press(self, mcu_note: int) -> None:
+        """HUD bookkeeping for a surface button this app just pressed."""
+
+        move = BANK_MOVES.get(mcu_note)
+        if move is not None:
+            delta, label = move
+            self.toast(label)
+            self._pending_track = None
+            if self.bank_offset is not None:
+                self.bank_offset = max(0, self.bank_offset + delta)
+                self._bank_exact = False
+            return
+        text = PRESS_TOASTS.get(mcu_note)
+        if text is not None:
+            self.toast(text)
 
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
@@ -543,6 +623,7 @@ class Engine:
         if last is not None and self._frame - last <= self.stop_double_frames:
             self._mcu_click(mcu.NOTE_CW_HOME)
             self._last_stop_frame = None  # a third press starts a new pair
+            self.toast("Go to start")
         else:
             self._last_stop_frame = self._frame
 
@@ -557,6 +638,7 @@ class Engine:
             raise ValueError(f"unknown knob mode: {mode!r}")
 
         self.knob_mode = mode
+        self.toast(hud_state.KNOB_MODE_TOASTS[mode])
         self._select_assignment(KNOB_MODE_ASSIGN[mode])
         if mode in KNOB_MODE_SEND_PARAM:
             self._select_send_param(KNOB_MODE_SEND_PARAM[mode])
@@ -623,6 +705,7 @@ class Engine:
         decoded = mcu.decode(message)
         if decoded is None:
             return
+        self._last_mcu_frame = self._frame
         if decoded.kind in ("note_on", "note_off"):
             velocity = decoded.value if decoded.kind == "note_on" else 0
             self.on_mcu_note(decoded.number, velocity)
@@ -632,6 +715,8 @@ class Engine:
             self.on_mcu_pitch(decoded.channel, decoded.value)
         elif decoded.kind == "pressure":
             self.on_mcu_meter(decoded.value)
+        elif decoded.kind == "sysex":
+            self.on_mcu_sysex(decoded.raw)
 
     def on_mcu_note(self, note: int, velocity: int) -> None:
         """Render an MCU LED note onto the APC40. Feedback is authoritative."""
@@ -639,19 +724,22 @@ class Engine:
         state = mcu.led_state(velocity)
         on = apc.LED_ON if state != "off" else apc.LED_OFF
 
-        if mcu.NOTE_REC1 <= note < mcu.NOTE_REC1 + self.tracks:
-            self.apc.strip_led(note - mcu.NOTE_REC1, apc.NOTE_RECORD_ARM, on, force=True)
-        elif mcu.NOTE_SOLO1 <= note < mcu.NOTE_SOLO1 + self.tracks:
-            self.apc.strip_led(note - mcu.NOTE_SOLO1, apc.NOTE_SOLO, on, force=True)
-        elif mcu.NOTE_MUTE1 <= note < mcu.NOTE_MUTE1 + self.tracks:
-            self.apc.strip_led(note - mcu.NOTE_MUTE1, apc.NOTE_ACTIVATOR, on, force=True)
-        elif mcu.NOTE_SELECT1 <= note < mcu.NOTE_SELECT1 + self.tracks:
-            self.apc.strip_led(note - mcu.NOTE_SELECT1, apc.NOTE_TRACK_SELECT, on, force=True)
-        elif note == mcu.NOTE_PLAY:
+        for first, key, apc_note in STRIP_LEDS:
+            if first <= note < first + self.tracks:
+                strip = note - first
+                self._strip_leds[key][strip] = state != "off"
+                self.apc.strip_led(strip, apc_note, on, force=True)
+                if key == "select":
+                    self._on_select_led()
+                return
+
+        if note == mcu.NOTE_PLAY:
+            self._play_led = state != "off"
             self.apc.global_note(apc.NOTE_PLAY, on, force=True)
         elif note == mcu.NOTE_STOP:
             self.apc.global_note(apc.NOTE_STOP, on, force=True)
         elif note == mcu.NOTE_RECORD:
+            self._record_led = state != "off"
             self.apc.global_note(apc.NOTE_RECORD, on, force=True)
         elif note in ASSIGN_LED:
             if state != "off":
@@ -667,6 +755,8 @@ class Engine:
             self.apc.global_note(apc.NOTE_UTIL_METRONOME, on, force=True)
 
     def on_mcu_cc(self, cc: int, value: int) -> None:
+        if self.seven_seg.apply(cc, value):
+            return  # timecode / assignment display, HUD only
         if not (mcu.CC_RING1 <= cc < mcu.CC_RING1 + self.tracks):
             return
 
@@ -690,6 +780,97 @@ class Engine:
         """Fader feedback is intentionally ignored: APC40 faders are not motorized."""
 
         return
+
+    # ------------------------------------------------------------------
+    # MCU LCD (HUD only)
+    # ------------------------------------------------------------------
+
+    def on_mcu_sysex(self, raw: Sequence[int]) -> None:
+        """Apply Cakewalk's LCD text; other SysEx is ignored."""
+
+        if not self.lcd.apply(raw):
+            return
+        message = self.lcd.temp_message()
+        if message != self._temp_message:
+            self._temp_message = message
+            if message is not None:
+                self._on_temp_message(message)
+        if message is None:
+            self._update_strip_names()
+
+    def _on_temp_message(self, message: str) -> None:
+        """Cakewalk's centered upper-line message, e.g. 'Track 5: "Vocals"'."""
+
+        self.toast(message)
+        parsed = mcu_display.parse_track_message(message)
+        if parsed is None or parsed[0] != "Track":
+            return
+        _kind, number, name = parsed
+        self._selected_track = number
+        self._selected_name = name
+        self._pending_track = number
+        self._derive_bank()
+
+    def _update_strip_names(self, *, expire: bool = False) -> None:
+        """Track the upper-line names, telling a V-pot value peek from a name.
+
+        Turning a V-pot makes Cakewalk show the value in that strip's name
+        cell for about a second. A cell change shortly after this app turned
+        that V-pot is a peek; any other change is a new name. *expire*
+        re-evaluates only the peeks, once their window has passed.
+        """
+
+        for strip in range(self.tracks):
+            text = self.lcd.cell(0, strip)
+            if text == self._stable_names[strip]:
+                self._peek[strip] = ""
+                continue
+            if expire and not self._peek[strip]:
+                continue
+            turned = self._vpot_frame[strip]
+            if turned is not None and self._frame - turned <= self.peek_frames:
+                self._peek[strip] = text
+            else:
+                self._stable_names[strip] = text
+                self._peek[strip] = ""
+
+    def _selected_strip(self) -> int | None:
+        """The strip whose Select LED is the only one lit, else None."""
+
+        lit = [i for i, on in enumerate(self._strip_leds["select"]) if on]
+        return lit[0] if len(lit) == 1 else None
+
+    def _on_select_led(self) -> None:
+        strip = self._selected_strip()
+        if strip is None:
+            return
+        if self.bank_offset is not None:
+            self._selected_track = self.bank_offset + strip + 1
+        self._selected_name = self._stable_names[strip]
+        self._derive_bank()
+
+    def _derive_bank(self) -> None:
+        """Strip window offset = track number - 1 - strip, from a track select.
+
+        Cakewalk never reports the offset, but a surface select lights the
+        strip's Select LED and shows 'Track N: "name"'. The strip this app
+        just pressed is preferred; otherwise a single lit Select LED.
+        """
+
+        number = self._pending_track
+        if number is None:
+            return
+        strip = None
+        press = self._select_press
+        if press is not None and self._frame - press[1] <= self.peek_frames:
+            strip = press[0]
+        if strip is None:
+            strip = self._selected_strip()
+        if strip is None:
+            return
+        self.bank_offset = max(0, number - 1 - strip)
+        self._bank_exact = True
+        self._pending_track = None
 
     # ------------------------------------------------------------------
     # Level meters
@@ -739,6 +920,7 @@ class Engine:
         want_on = not self.cakewalk_meters_on()
         self._step_cakewalk_meters()
         self._meter_toggle = {"start": self._frame, "want_on": want_on}
+        self.toast("Cakewalk meters on" if want_on else "Cakewalk meters off")
         self._flash_global(apc.NOTE_UTIL_DETAIL_VIEW)
         log.info("Cakewalk meters: turning %s", "on" if want_on else "off")
 
@@ -848,8 +1030,9 @@ class Engine:
         self._settle_meter_toggle()
         self._zoom_idle()
         self._settle_knob_dump()
-        if self.meters:
-            self._decay_meters()
+        self._decay_meters()  # also keeps the HUD meters falling when the grid is off
+        if any(self._peek) and self._temp_message is None:
+            self._update_strip_names(expire=True)
         if not self._flashes:
             return
         remaining: list[dict] = []
@@ -860,6 +1043,58 @@ class Engine:
             else:
                 remaining.append(flash)
         self._flashes = remaining
+
+    # ------------------------------------------------------------------
+    # HUD
+    # ------------------------------------------------------------------
+
+    def toast(self, text: str) -> None:
+        """Queue a short HUD message acknowledging an action."""
+
+        self._toast_id += 1
+        self._toasts.append((self._toast_id, text))
+
+    def hud_snapshot(self) -> hud_state.HudSnapshot:
+        """Immutable picture of the state the on-screen HUD shows."""
+
+        leds = self._strip_leds
+        last = self._last_mcu_frame
+        if self._record_led:
+            transport = "record"
+        elif self._play_led:
+            transport = "play"
+        else:
+            transport = "stop"
+        return hud_state.HudSnapshot(
+            knob_mode=self.knob_mode,
+            mixer=self.mixer,
+            shift=self.shift,
+            transport=transport,
+            loop=self._loop_led != apc.LED_OFF,
+            zoom=self._zoom_mode,
+            cakewalk_meters=self.cakewalk_meters_on(),
+            cakewalk_active=last is not None and self._frame - last <= self.link_idle_frames,
+            assign=self._cw_assign,
+            rec=tuple(leds["rec"]),
+            solo=tuple(leds["solo"]),
+            mute=tuple(leds["mute"]),
+            selected_strip=self._selected_strip(),
+            selected_track=self._selected_track,
+            selected_name=self._selected_name,
+            bank_offset=self.bank_offset,
+            bank_exact=self._bank_exact,
+            lcd_seen=self.lcd.seen,
+            lcd=(self.lcd.line(0), self.lcd.line(1)),
+            strip_names=tuple(self._stable_names),
+            strip_values=tuple(self.lcd.cell(1, s) for s in range(self.tracks)),
+            strip_peek=tuple(self._peek),
+            timecode=self.seven_seg.timecode(),
+            assignment=self.seven_seg.assignment(),
+            strip_layout=self.seven_seg.strip_layout(),
+            meter_levels=tuple(self._meter_level),
+            meter_clips=tuple(self._meter_clip),
+            toasts=tuple(self._toasts),
+        )
 
     # ------------------------------------------------------------------
     # Baseline

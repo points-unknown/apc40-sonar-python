@@ -124,7 +124,8 @@ Tasks:
 - [x] Bank +/- (MCU 46/47) on Bank Select Left/Right and Channel +/- (48/49) on Shift +
       Left/Right (done). Bank Select arrow LEDs flash on press
 - [ ] Show which bank is active (e.g. briefly on the grid); Cakewalk does not report the
-      strip offset over MCU, so it would have to be tracked locally
+      strip offset over MCU, so it would have to be tracked locally. The HUD now derives
+      it from track selects (`Engine.bank_offset`); the grid could reuse that
 - [x] Master fader (APC CC 14) -> MCU Pitch Bend ch 8 (done)
 - [x] **Crossfader = horizontal zoom** (APC CC 15), all Mackie Control (done): MCU Zoom
       mode + Cursor Left/Right, auto on/off after `ZOOM_IDLE_MS`, following the Zoom LED;

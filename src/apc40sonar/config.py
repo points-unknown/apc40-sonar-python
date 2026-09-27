@@ -24,6 +24,16 @@ Recognized keys (all optional; defaults match the documented topology):
     METER_DECAY_MS    meter fall time per segment     default: 300
     ZOOM_STEP_UNITS   crossfader travel per zoom step default: 6
     ZOOM_IDLE_MS      leave Cakewalk zoom mode after  default: 300
+    HUD               launch the on-screen HUD        default: off
+    HUD_PORT          HUD UDP port on 127.0.0.1       default: 47040
+    HUD_POSITION      top-left/top-right/bottom-*/x,y default: top-right
+    HUD_MONITOR       monitor index for placement     default: 0
+    HUD_OPACITY       window alpha 0.2-1.0            default: 0.85
+    HUD_TOPMOST       keep the HUD above other windows default: on
+    HUD_CLICK_THROUGH mouse passes through the HUD    default: off
+    HUD_LAYOUT        compact / expanded              default: compact
+    HUD_TOAST_MS      toast duration                  default: 1200
+    HUD_LCD           capture Cakewalk's MCU displays default: on
 """
 
 from __future__ import annotations
@@ -46,7 +56,19 @@ DEFAULTS = {
     "METER_DECAY_MS": "300",
     "ZOOM_STEP_UNITS": "6",
     "ZOOM_IDLE_MS": "300",
+    "HUD": "off",
+    "HUD_PORT": "47040",
+    "HUD_POSITION": "top-right",
+    "HUD_MONITOR": "0",
+    "HUD_OPACITY": "0.85",
+    "HUD_TOPMOST": "on",
+    "HUD_CLICK_THROUGH": "off",
+    "HUD_LAYOUT": "compact",
+    "HUD_TOAST_MS": "1200",
+    "HUD_LCD": "on",
 }
+
+HUD_LAYOUTS = ("compact", "expanded")
 
 TRUE_WORDS = frozenset({"1", "on", "true", "yes"})
 FALSE_WORDS = frozenset({"0", "off", "false", "no"})
@@ -67,6 +89,16 @@ class Config:
     meter_decay_ms: int = 300
     zoom_step_units: int = 6
     zoom_idle_ms: int = 300
+    hud: bool = False
+    hud_port: int = 47040
+    hud_position: str = "top-right"
+    hud_monitor: int = 0
+    hud_opacity: float = 0.85
+    hud_topmost: bool = True
+    hud_click_through: bool = False
+    hud_layout: str = "compact"
+    hud_toast_ms: int = 1200
+    hud_lcd: bool = True
     env_path: Path | None = None
 
 
@@ -124,6 +156,22 @@ def _as_int(values: dict[str, str], key: str, default: int) -> int:
         return default
 
 
+def _as_float(values: dict[str, str], key: str, default: float) -> float:
+    """Parse a decimal setting, falling back to *default*."""
+
+    try:
+        return float(str(values[key]).strip())
+    except (KeyError, ValueError):
+        return default
+
+
+def _as_choice(values: dict[str, str], key: str, choices: tuple[str, ...], default: str) -> str:
+    """Parse one of *choices* (case-insensitive), falling back to *default*."""
+
+    text = str(values.get(key, "")).strip().lower()
+    return text if text in choices else default
+
+
 def _as_bool(values: dict[str, str], key: str, default: bool) -> bool:
     """Parse an on/off setting, falling back to *default* for unknown words."""
 
@@ -175,5 +223,15 @@ def load_config(
         meter_decay_ms=_as_int(values, "METER_DECAY_MS", 300),
         zoom_step_units=_as_int(values, "ZOOM_STEP_UNITS", 6),
         zoom_idle_ms=_as_int(values, "ZOOM_IDLE_MS", 300),
+        hud=_as_bool(values, "HUD", False),
+        hud_port=_as_int(values, "HUD_PORT", 47040),
+        hud_position=str(values["HUD_POSITION"]).strip().lower() or "top-right",
+        hud_monitor=max(0, _as_int(values, "HUD_MONITOR", 0)),
+        hud_opacity=min(max(_as_float(values, "HUD_OPACITY", 0.85), 0.2), 1.0),
+        hud_topmost=_as_bool(values, "HUD_TOPMOST", True),
+        hud_click_through=_as_bool(values, "HUD_CLICK_THROUGH", False),
+        hud_layout=_as_choice(values, "HUD_LAYOUT", HUD_LAYOUTS, "compact"),
+        hud_toast_ms=max(0, _as_int(values, "HUD_TOAST_MS", 1200)),
+        hud_lcd=_as_bool(values, "HUD_LCD", True),
         env_path=resolved,
     )

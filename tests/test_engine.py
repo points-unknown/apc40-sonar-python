@@ -1152,3 +1152,261 @@ def test_baseline_centers_device_rings_on_every_bank():
 
     for bank in range(apc.DEVICE_BANKS):
         assert (0xB0 | bank, apc.device_ring_cc(1), 63) in rec.apc_msgs
+
+
+# ---------------------------------------------------------------------------
+# HUD snapshot
+# ---------------------------------------------------------------------------
+
+
+def lcd_sysex(offset, text):
+    return (0xF0, 0x00, 0x00, 0x66, 0x14, 0x12, offset, *text.encode("ascii"), 0xF7)
+
+
+def lcd_cells(names):
+    return "".join(f"{name[:6]:<6} " for name in names)
+
+
+def track_message(number, name):
+    return lcd_sysex(0, f'Track {number}: "{name}"'.center(56))
+
+
+def toast_texts(eng):
+    return [text for _id, text in eng.hud_snapshot().toasts]
+
+
+def test_hud_snapshot_follows_knob_mode_and_shift():
+    eng, _, _ = make_engine()
+    eng.set_knob_mode("send_b")
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    snap = eng.hud_snapshot()
+    assert (snap.knob_mode, snap.shift, snap.mixer) == ("send_b", True, True)
+    assert toast_texts(eng)[-1] == "Send B"
+
+
+def test_hud_snapshot_stores_transport_loop_and_zoom_leds():
+    eng, _, _ = make_engine()
+    assert eng.hud_snapshot().transport == "stop"
+
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_PLAY, 127))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_CW_LOOP, 127))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_ZOOM, 127))
+    snap = eng.hud_snapshot()
+    assert (snap.transport, snap.loop, snap.zoom) == ("play", True, True)
+
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_RECORD, 127))
+    assert eng.hud_snapshot().transport == "record"
+
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_RECORD, 0))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_PLAY, 0))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_CW_LOOP, 0))
+    snap = eng.hud_snapshot()
+    assert (snap.transport, snap.loop) == ("stop", False)
+
+
+def test_hud_snapshot_stores_strip_leds_and_selection():
+    eng, rec, _ = make_engine()
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_REC1 + 1, 127))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_SOLO1 + 2, 127))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_MUTE1 + 3, 1))  # blink counts as on
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_SELECT1 + 4, 127))
+    snap = eng.hud_snapshot()
+    assert snap.rec[1] and snap.solo[2] and snap.mute[3]
+    assert snap.selected_strip == 4
+    # The LEDs still reach the APC40.
+    assert (0x91, apc.NOTE_RECORD_ARM, apc.LED_ON) in rec.apc_msgs
+
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_SELECT1 + 5, 127))
+    assert eng.hud_snapshot().selected_strip is None  # two lit: ambiguous
+
+
+def test_hud_meters_and_cakewalk_activity():
+    eng, _, _ = make_engine(link_idle_frames=10)
+    snap = eng.hud_snapshot()
+    assert not snap.cakewalk_active and not snap.cakewalk_meters
+
+    eng.on_mcu_message(mcu.meter_message(2, 9))
+    snap = eng.hud_snapshot()
+    assert snap.cakewalk_active and snap.cakewalk_meters
+    assert snap.meter_levels[2] == 9
+
+    run_frames(eng, 11)
+    assert not eng.hud_snapshot().cakewalk_active
+
+
+def test_hud_meters_decay_even_with_the_grid_meters_off():
+    eng, _, _ = make_engine(meters=False, meter_decay_frames=1)
+    eng.on_mcu_message(mcu.meter_message(0, 5))
+    eng.tick()
+    assert eng.hud_snapshot().meter_levels[0] == 4
+
+
+def test_hud_toasts_for_actions_without_feedback():
+    eng, _, _ = make_engine(stop_double_frames=5)
+    eng.on_apc_message((0x90, apc.NOTE_RIGHT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_LEFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_UTIL_METRONOME, 127))
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+    eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+    assert toast_texts(eng) == [
+        "Bank >",
+        "Channel <",
+        "Metronome (rec) toggled",
+        "Go to start",
+        "Stop all",
+    ]
+    ids = [i for i, _t in eng.hud_snapshot().toasts]
+    assert ids == sorted(ids) and len(set(ids)) == len(ids)
+
+
+def test_hud_toast_for_meter_toggle_and_zoom_fit():
+    eng, _, _ = make_engine()
+    press_shift_detail(eng)
+    assert toast_texts(eng)[-1] == "Cakewalk meters on"
+
+    eng.on_apc_message((0xB0, apc.CC_CROSSFADER, 60))
+    eng.on_apc_message((0xB0, apc.CC_CROSSFADER, 0))
+    assert toast_texts(eng)[-1] == "Zoom: fit project"
+
+
+def test_hud_toast_history_is_bounded():
+    eng, _, _ = make_engine()
+    for i in range(20):
+        eng.toast(f"t{i}")
+    toasts = eng.hud_snapshot().toasts
+    assert len(toasts) == engine_mod.TOAST_HISTORY
+    assert toasts[-1] == (20, "t19")
+
+
+def test_hud_snapshot_is_equal_when_nothing_changed():
+    eng, _, _ = make_engine()
+    first = eng.hud_snapshot()
+    assert eng.hud_snapshot() == first
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_PLAY, 127))
+    assert eng.hud_snapshot() != first
+
+
+def test_hud_lcd_names_values_and_timecode():
+    eng, _, _ = make_engine()
+    names = ["Kick", "Snare", "OH", "Bass", "Gtr L", "Gtr R", "Vocals", "Pad"]
+    eng.on_mcu_message(lcd_sysex(0, lcd_cells(names)))
+    eng.on_mcu_message(lcd_sysex(56, lcd_cells(["C", "L12", "R5", "", "", "", "", ""])))
+    for index, char in enumerate(" 3702  000"):
+        code = ord(char)
+        eng.on_mcu_message(mcu.control_change(73 - index, code - 0x40 if code >= 0x40 else code))
+    eng.on_mcu_message(mcu.control_change(75, 0x13))  # S
+    eng.on_mcu_message(mcu.control_change(74, 0x05))  # E
+
+    snap = eng.hud_snapshot()
+    assert snap.lcd_seen
+    assert snap.strip_names == tuple(names)
+    assert snap.strip_values[:3] == ("C", "L12", "R5")
+    assert snap.timecode == "37.02.000"
+    assert (snap.assignment, snap.strip_layout) == ("SE", False)
+
+
+def test_timecode_ccs_do_not_reach_the_rings():
+    eng, rec, _ = make_engine()
+    eng.on_mcu_message(mcu.control_change(64, 0x30))
+    assert rec.apc_msgs == []
+
+
+def test_hud_vpot_peek_is_not_taken_for_a_name():
+    eng, _, _ = make_engine(peek_frames=10)
+    eng.on_mcu_message(lcd_sysex(0, lcd_cells(["Kick", "Snare", "", "", "", "", "", ""])))
+
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1 + 1, 10))
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1 + 1, 11))  # turn knob 2
+    eng.on_mcu_message(lcd_sysex(7, " -3.0 "))
+    snap = eng.hud_snapshot()
+    assert snap.strip_names[1] == "Snare"
+    assert snap.strip_peek[1] == "-3.0"
+
+    eng.on_mcu_message(lcd_sysex(7, "Snare "))  # Cakewalk restores the name
+    snap = eng.hud_snapshot()
+    assert (snap.strip_names[1], snap.strip_peek[1]) == ("Snare", "")
+
+    # A rename long after any knob turn is a new name.
+    run_frames(eng, 11)
+    eng.on_mcu_message(lcd_sysex(7, "Snr2  "))
+    assert eng.hud_snapshot().strip_names[1] == "Snr2"
+
+
+def test_hud_stale_peek_expires_to_a_name():
+    eng, _, _ = make_engine(peek_frames=5)
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 10))
+    eng.on_apc_message((0xB0, apc.CC_TRACK_KNOB1, 11))
+    eng.on_mcu_message(lcd_sysex(0, "Kick  "))
+    assert eng.hud_snapshot().strip_peek[0] == "Kick"
+    run_frames(eng, 6)
+    snap = eng.hud_snapshot()
+    assert (snap.strip_names[0], snap.strip_peek[0]) == ("Kick", "")
+
+
+def test_hud_track_message_sets_selection_and_bank_offset():
+    eng, _, _ = make_engine()
+    eng.on_mcu_message(lcd_sysex(0, lcd_cells(["A", "B", "C", "Vocals", "E", "F", "G", "H"])))
+
+    # Track Selection on strip 4; Cakewalk lights Select 4 and names track 12.
+    eng.on_apc_message((0x93, apc.NOTE_TRACK_SELECT, 127))
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_SELECT1 + 3, 127))
+    eng.on_mcu_message(track_message(12, "Vocals"))
+
+    snap = eng.hud_snapshot()
+    assert (snap.bank_offset, snap.bank_exact) == (8, True)
+    assert (snap.selected_track, snap.selected_name) == (12, "Vocals")
+    assert toast_texts(eng)[-1] == 'Track 12: "Vocals"'
+    # The temp message does not overwrite the strip names.
+    assert snap.strip_names[3] == "Vocals"
+
+
+def test_hud_bank_offset_from_select_led_when_message_comes_first():
+    eng, _, _ = make_engine()
+    eng.on_mcu_message(track_message(3, "Bass"))
+    assert eng.hud_snapshot().bank_offset is None
+    eng.on_mcu_message(mcu.note_on(mcu.NOTE_SELECT1 + 2, 127))
+    assert eng.hud_snapshot().bank_offset == 0
+
+
+def test_hud_bank_moves_make_the_offset_provisional():
+    eng, _, _ = make_engine()
+    eng.on_apc_message((0x90, apc.NOTE_TRACK_SELECT, 127))
+    eng.on_mcu_message(track_message(1, "Kick"))
+    assert eng.hud_snapshot().bank_offset == 0
+
+    eng.on_apc_message((0x90, apc.NOTE_RIGHT, 127))  # Bank >
+    snap = eng.hud_snapshot()
+    assert (snap.bank_offset, snap.bank_exact) == (8, False)
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_LEFT, 127))  # Channel <
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+    assert eng.hud_snapshot().bank_offset == 7
+
+    eng.on_apc_message((0x90, apc.NOTE_LEFT, 127))  # Bank <, clamped at 0
+    assert eng.hud_snapshot().bank_offset == 0
+
+
+def test_hud_send_param_moves_do_not_count_as_bank_moves():
+    eng, _, _ = make_engine()
+    eng.on_apc_message((0x90, apc.NOTE_TRACK_SELECT, 127))
+    eng.on_mcu_message(track_message(1, "Kick"))
+    eng.set_knob_mode("send_c")  # Edit mode + Bank/Channel parameter moves
+    snap = eng.hud_snapshot()
+    assert (snap.bank_offset, snap.bank_exact) == (0, True)
+
+
+def test_hud_strip_layout_dot_is_reported():
+    eng, _, _ = make_engine()
+    eng.on_mcu_message(mcu.control_change(74, 0x40 | 0x0E))
+    assert eng.hud_snapshot().strip_layout
+
+
+def test_non_lcd_sysex_is_ignored():
+    eng, rec, _ = make_engine()
+    eng.on_mcu_message((0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7))
+    assert not eng.hud_snapshot().lcd_seen
+    assert rec.apc_msgs == [] and rec.mcu_msgs == []

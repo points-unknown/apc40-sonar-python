@@ -9,6 +9,8 @@ Modes:
                                      APC40 <-> Cakewalk event loop)
     uv run apc40sonar --no-show      as above but skip the lightshow
     uv run apc40sonar --monitor      also print incoming MIDI messages
+    uv run apc40sonar --hud          also show the on-screen HUD (``HUD`` in
+                                     ``.env``; ``--no-hud`` turns it off)
 
 The physical APC40 is opened read+write and put into its configured operating
 mode (``APC40_MODE`` in ``.env``) before any other message. The two loopMIDI
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -31,6 +34,7 @@ from typing import Callable, Sequence, TextIO
 from . import apc40
 from . import config as config_module
 from . import engine
+from . import hud_link
 from . import lightshow
 from . import logging_setup
 from . import midi_io
@@ -66,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--monitor",
         action="store_true",
         help="Print every incoming MIDI message.",
+    )
+    parser.add_argument(
+        "--hud",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Show the on-screen HUD (default: HUD in .env, off).",
     )
     parser.add_argument(
         "--env",
@@ -113,8 +123,11 @@ def _report_config(cfg: config_module.Config, ports: midi_io.MidiPorts, stream: 
     return all_ok
 
 
-def _open_mcu(cfg: config_module.Config, log: logging.Logger):
-    """Open the two loopMIDI cables best-effort. Returns (out, in), either may be None."""
+def _open_mcu(cfg: config_module.Config, log: logging.Logger, *, sysex: bool = False):
+    """Open the two loopMIDI cables best-effort. Returns (out, in), either may be None.
+
+    *sysex* keeps Cakewalk's LCD SysEx on the input (for the HUD).
+    """
 
     mcu_out = mcu_in = None
     try:
@@ -128,7 +141,7 @@ def _open_mcu(cfg: config_module.Config, log: logging.Logger):
             file=sys.stderr,
         )
     try:
-        mcu_in = midi_io.open_input(cfg.mcu_in_port, cfg.client_name)
+        mcu_in = midi_io.open_input(cfg.mcu_in_port, cfg.client_name, ignore_sysex=not sysex)
         log.info("opened MCU input %r", cfg.mcu_in_port)
     except Exception as exc:  # noqa: BLE001
         log.warning("MCU input port %r unavailable: %s", cfg.mcu_in_port, exc)
@@ -166,6 +179,36 @@ def _drain(
             log.exception("handler error for %s message %r", label, message)
 
 
+class _Hud:
+    """The HUD child process and the publisher feeding it."""
+
+    def __init__(self, cfg: config_module.Config, env_path: Path | None, info: dict) -> None:
+        argv = [sys.executable, "-m", "apc40sonar.hud", "--parent-pid", str(os.getpid())]
+        argv += ["--port", str(cfg.hud_port)]
+        if env_path is not None:
+            argv += ["--env", str(env_path)]
+        self.publisher = hud_link.HudPublisher(cfg.hud_port, info=info)
+        self.process = hud_link.HudProcess(argv)
+        self._next_check = 0.0
+
+    def start(self) -> None:
+        self.process.start()
+
+    def update(self, eng: engine.Engine) -> None:
+        """Publish a snapshot when due; check the child about once a second."""
+
+        if self.publisher.due():
+            self.publisher.publish(eng.hud_snapshot())
+        now = time.monotonic()
+        if now >= self._next_check:
+            self._next_check = now + 1.0
+            self.process.poll()
+
+    def stop(self) -> None:
+        self.process.stop()
+        self.publisher.close()
+
+
 def _run(args: argparse.Namespace) -> int:
     log = logging_setup.setup_logging()
     cfg = config_module.load_config(env_path=args.env)
@@ -195,7 +238,8 @@ def _run(args: argparse.Namespace) -> int:
         return 1
     log.info("opened APC40 input and output")
 
-    mcu_out, mcu_in = _open_mcu(cfg, log)
+    hud_on = cfg.hud if args.hud is None else args.hud
+    mcu_out, mcu_in = _open_mcu(cfg, log, sysex=hud_on and cfg.hud_lcd)
 
     def apc_send(message: Sequence[int]) -> None:
         if args.monitor:
@@ -230,6 +274,7 @@ def _run(args: argparse.Namespace) -> int:
         zoom_idle_frames=round(cfg.zoom_idle_ms / 1000 / POLL_SECONDS),
     )
 
+    hud: _Hud | None = None
     try:
         if not args.no_show:
             print("startup lightshow...")
@@ -244,6 +289,14 @@ def _run(args: argparse.Namespace) -> int:
             print("lightshow complete; APC40 surface ready")
             return 0
 
+        if hud_on:
+            try:
+                hud = _Hud(cfg, args.env, {"mcu_out": mcu_out is not None, "mcu_in": mcu_in is not None})
+                hud.start()
+            except OSError as exc:
+                log.warning("HUD unavailable: %s", exc)
+                hud = None
+
         print("running - press Ctrl+C to stop")
         try:
             while True:
@@ -251,12 +304,21 @@ def _run(args: argparse.Namespace) -> int:
                 if mcu_in is not None:
                     _drain(mcu_in, eng.on_mcu_message, "mcu", args.monitor, log)
                 eng.tick()
+                if hud is not None:
+                    try:
+                        hud.update(eng)
+                    except Exception:  # noqa: BLE001 - the HUD must never stop MIDI
+                        log.exception("HUD update failed; HUD disabled")
+                        hud.stop()
+                        hud = None
                 time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
             print("\nstopping")
             log.info("stopped by user")
         return 0
     finally:
+        if hud is not None:
+            hud.stop()
         del apc_in, apc_out_handle, mcu_out, mcu_in
 
 

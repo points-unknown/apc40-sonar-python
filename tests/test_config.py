@@ -156,3 +156,57 @@ def test_zoom_settings_default_and_override(tmp_path, monkeypatch):
     env_file.write_text("ZOOM_STEP_UNITS=4\nZOOM_IDLE_MS=500\n", encoding="utf-8")
     cfg = config.load_config(env_path=env_file)
     assert (cfg.zoom_step_units, cfg.zoom_idle_ms) == (4, 500)
+
+
+def test_hud_settings_defaults(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    monkeypatch.delenv(config.ENV_VAR, raising=False)
+
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert cfg.hud is False
+    assert cfg.hud_port == 47040
+    assert cfg.hud_position == "top-right"
+    assert cfg.hud_monitor == 0
+    assert cfg.hud_opacity == 0.85
+    assert cfg.hud_topmost is True
+    assert cfg.hud_click_through is False
+    assert cfg.hud_layout == "compact"
+    assert cfg.hud_toast_ms == 1200
+    assert cfg.hud_lcd is True
+
+
+def test_hud_settings_override_and_validation(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "HUD=on",
+                "HUD_PORT=50000",
+                "HUD_POSITION=Bottom-Left",
+                "HUD_MONITOR=1",
+                "HUD_OPACITY=0.05",
+                "HUD_TOPMOST=off",
+                "HUD_CLICK_THROUGH=yes",
+                "HUD_LAYOUT=Expanded",
+                "HUD_TOAST_MS=800",
+                "HUD_LCD=off",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cfg = config.load_config(env_path=env_file)
+    assert cfg.hud is True
+    assert cfg.hud_port == 50000
+    assert cfg.hud_position == "bottom-left"
+    assert cfg.hud_monitor == 1
+    assert cfg.hud_opacity == 0.2  # clamped
+    assert cfg.hud_topmost is False
+    assert cfg.hud_click_through is True
+    assert cfg.hud_layout == "expanded"
+    assert cfg.hud_toast_ms == 800
+    assert cfg.hud_lcd is False
+
+    env_file.write_text("HUD_OPACITY=abc\nHUD_LAYOUT=huge\n", encoding="utf-8")
+    cfg = config.load_config(env_path=env_file)
+    assert (cfg.hud_opacity, cfg.hud_layout) == (0.85, "compact")

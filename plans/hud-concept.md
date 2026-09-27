@@ -1,6 +1,8 @@
 # HUD concept - a tiny on-screen display for apc40sonar
 
-Status: concept / plan (nothing implemented). Author: research pass, 2026-09-27.
+Status: Phases 0-2 implemented 2026-09-27 (plus expanded strips, meters and R/S/M from
+Phase 4); Phase 3 (C4) waits on `plans/c4-surface-plan.md`. Hardware checks in section 6
+are still open. Author: research pass, 2026-09-27.
 
 The APC40 has no display, so today the only feedback is LEDs. The HUD is a small,
 always-on-top overlay that shows what the controller is doing and what Cakewalk

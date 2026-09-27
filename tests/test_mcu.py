@@ -84,8 +84,13 @@ def test_decode_cc_and_pitch_bend():
     assert pitch.value == 0x40 | (0x40 << 7)
 
 
-def test_decode_ignores_system_messages():
-    assert mcu.decode((0xF0, 0x00, 0xF7)) is None
+def test_decode_passes_sysex_and_ignores_other_system_messages():
+    sysex = mcu.decode((0xF0, 0x00, 0xF7))
+    assert sysex is not None
+    assert (sysex.kind, sysex.raw) == ("sysex", (0xF0, 0x00, 0xF7))
+
+    assert mcu.decode((0xF0, 0x00, 0x01)) is None  # truncated SysEx
+    assert mcu.decode((0xF8, 0x00)) is None
 
 
 def test_channel_pressure_decodes_as_meter():

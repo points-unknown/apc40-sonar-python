@@ -247,10 +247,11 @@ class RingValue:
 class DecodedMessage:
     """A parsed incoming MIDI message.
 
-    ``kind`` is one of ``note_on``, ``note_off``, ``cc``, ``pitch_bend`` or
-    ``pressure`` (channel pressure). ``number`` is the note or CC number (0 for
-    pitch bend and pressure). ``value`` is the velocity, CC value, 14-bit pitch
-    value, or pressure value.
+    ``kind`` is one of ``note_on``, ``note_off``, ``cc``, ``pitch_bend``,
+    ``pressure`` (channel pressure) or ``sysex``. ``number`` is the note or CC
+    number (0 for pitch bend, pressure and SysEx). ``value`` is the velocity,
+    CC value, 14-bit pitch value, or pressure value (0 for SysEx, whose bytes
+    are in ``raw``).
     """
 
     kind: str
@@ -264,8 +265,8 @@ def decode(message: Sequence[int]) -> DecodedMessage | None:
     """Parse a raw MIDI message. Returns ``None`` for unsupported types.
 
     Note On velocity 0 is normalized to ``note_off``, matching MIDI semantics.
-    System messages (status >= 0xF0) are ignored here - SysEx LCD text is not
-    used by this integration.
+    A complete SysEx message (``F0 ... F7``, the MCU LCD text) decodes as
+    ``sysex``; other system messages are ignored.
     """
 
     raw = tuple(message)
@@ -273,6 +274,8 @@ def decode(message: Sequence[int]) -> DecodedMessage | None:
         return None
 
     status = raw[0]
+    if status == 0xF0 and raw[-1] == 0xF7:
+        return DecodedMessage("sysex", 0, 0, 0, raw)
     if status >= 0xF0:
         return None
 
