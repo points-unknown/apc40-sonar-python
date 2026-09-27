@@ -1,8 +1,12 @@
 # apc40sonar
 
 Standalone Python integration between an **original Akai APC40** and **Cakewalk by
-BandLab**. The APC40 acts as an eight-channel mixer plus transport, knob modes, and more,
+BandLab**. The APC40 becomes a Mackie Control surface for Cakewalk: an eight-channel mixer
+(tracks or buses) with pan and three sends, transport, playhead scrubbing, markers,
+loop and punch, timeline zoom, level meters on the clip grid, and a small on-screen HUD,
 with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and rings.
+
+**What every button does:** [`docs/quick-reference.md`](docs/quick-reference.md).
 
 
 > Details live in [`docs/GENERAL.md`](docs/GENERAL.md); this README stays big-picture.
@@ -13,14 +17,16 @@ with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and ring
 Requirements: **Python 3.14** and **uv**; a physical `Akai APC40`; and two loopMIDI cables
 (`APC40-IN`, `APC40-OUT`). **New here? Follow
 [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md)** for the
-step-by-step loopMIDI and Cakewalk setup.
+step-by-step loopMIDI and Cakewalk setup, including the one-time **Mackie Control preset**
+(meters, master fader, F1 metronome, F2 auto-punch, *Select highlights track*) that the
+APC40 needs in every project.
 
 ```bat
 uv sync
 ```
 
-Check that the physical APC40 and both loopMIDI cables are visible, then verify the
-configured names resolve (this needs no loopMIDI):
+Check that the physical APC40 and both loopMIDI cables are visible, then test the APC40
+link on its own with the lightshow (that step needs no loopMIDI):
 
 ```bat
 uv run apc40sonar --list-ports
@@ -33,7 +39,9 @@ Run the full engine (add `--monitor` to print MIDI traffic, `--no-show` to skip 
 uv run apc40sonar
 ```
 
-`run-apc40-sonar.cmd <args>` is a launcher that finds `uv` automatically. Stop with Ctrl+C.
+The APC40 starts in **Tracking** mode (Scene 1 lit); Scene 3 is **Mixing**. Stop with
+Ctrl+C: the panel plays a short exit animation and goes dark. `run-apc40-sonar.cmd <args>`
+is a launcher that finds `uv` automatically.
 
 ### On-screen HUD
 
@@ -72,6 +80,9 @@ APC40_MODE=generic           # generic | ableton | alt-ableton
 KNOB_STEP_LIMIT=3            # max V-pot steps per knob event
 KNOB_NOISE_THRESHOLD=4       # ignore knob steps larger than this (0 disables)
 HUD=on                       # small always-on-top status window (off = none)
+CUE_STEP=1 beat              # playhead per Cue Level detent (measure | beat | tick | jog)
+SHIFT_CUE_STEP=30 tick       # ... with Shift held (fine)
+NUDGE_STEP=1 measure         # playhead per Nudge press
 ```
 
 The full key reference, behavior notes, and architecture are in
@@ -91,7 +102,12 @@ uv run pytest
 | `APC40-IN` / `APC40-OUT` missing | Start loopMIDI and re-add the ports; reboot after a fresh install |
 | A button toggles twice per press | Remove any direct APC40 device/surface added in Cakewalk |
 | LEDs flicker continuously | Ensure only this app routes back to the APC40 |
-| Controls do nothing but LEDs work | Re-add the Mackie Control surface (In `APC40-IN`, Out `APC40-OUT`) |
+| Controls do nothing but LEDs work | Re-add the Mackie Control surface (In `APC40-IN`, Out `APC40-OUT`); check *Disable handshake* is checked |
+| Nothing responds; loopMIDI shows a cable as `[muted]` | Restart loopMIDI, then Cakewalk and the app |
+| Meters dark, master fader or Track Selection do nothing | Apply the Mackie Control preset from the setup guide (step 4) |
+
+More symptoms and fixes: the setup guide's
+[troubleshooting](docs/setup-loopmidi-and-cakewalk.md#troubleshooting).
 
 Use `uv run apc40sonar --monitor` to see both MIDI directions and locate the failing path.
 More detail in [`docs/GENERAL.md`](docs/GENERAL.md).
@@ -112,5 +128,5 @@ More detail in [`docs/GENERAL.md`](docs/GENERAL.md).
 - [`docs/mcu-mapping.md`](docs/mcu-mapping.md) - Mackie Control mapping
 - [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md) - MCU vs keystroke bridging
 - [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) - step-by-step install, loopMIDI, and Cakewalk setup
-- [`plans/`](plans/) - implementation plan and handoff
+- [`plans/`](plans/) - implementation plan, handoff, C4 surface plan, HUD concept
 - [`reference/`](reference/) - the retired MIDIMonster/Lua prototype (historical) and frozen baseline lightshow

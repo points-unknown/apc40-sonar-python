@@ -151,26 +151,34 @@ Ring rendering by mode:
 
 ## APC40 to MCU Mapping (Control Path)
 
-| APC40 control | APC40 input | MCU message to emit |
+As built. The full per-button behavior (modes, Shift combos) is in
+[`quick-reference.md`](quick-reference.md) and [`GENERAL.md`](GENERAL.md#behavior-notes);
+note numbers below the Assign buttons follow Cakewalk's own *Cakewalk/SONAR Mode* table.
+
+| APC40 control | APC40 input | MCU message emitted |
 |---|---|---|
 | Fader 1-8 | CC 7 on `ch0`-`ch7` | Pitch Bend on channels 0-7, 7-bit scaled to 14-bit |
+| Master fader | CC 14 | Pitch Bend channel 8 |
 | Track Control knob 1-8 | CC 48-55 on `ch0` | V-pot rotation CC 16-23, relative (`0x01`/`0x41`) |
-| Activator (Mute) 1-8 | Note 50 on `ch0`-`ch7` | Mute Note 16-23 on channel 0 |
-| Solo 1-8 | Note 49 on `ch0`-`ch7` | Solo Note 8-15 |
-| Record Arm 1-8 | Note 48 on `ch0`-`ch7` | Rec Note 0-7 |
-| Track Select 1-8 | Note 51 on `ch0`-`ch7` | Select Note 24-31 |
-| Clip Stop 1-8 | Note 52 on `ch0`-`ch7` | V-pot push Note 32-39 (or local macro) |
-| Play / Stop / Record | Notes 91 / 92 / 93 | Play 94 / Stop 93 / Record 95 |
-| Left / Right (transport) | Notes 97 / 96 | Bank Left 46 / Bank Right 47 or Channel 48/49 |
-| Up / Down | Notes 94 / 95 | Channel Left 48 / Right 49 or Up/Down 96/97 |
-| Shift | Note 98 | Shift Note 70 (modifier) |
-| Nudge - / + | Notes 101 / 100 | Nudge Note 85 / Left-Right 98-99 |
-| Tap Tempo | Note 99 | No MCU tap; use keystroke |
-| Utility row (58-65) | Notes 58-65 | Assign / function notes or keystrokes (see command matrix) |
-| Scene 1-5 | Notes 82-86 | F1-F5 (54-58) or local grid-mode switches |
-| Master | Note 80 | Select Master / Global Note 51 |
+| Activator (Mute) 1-8 | Note 50 on `ch0`-`ch7` | Mute Note 16-23 (both latch edges) |
+| Solo 1-8 | Note 49 on `ch0`-`ch7` | Solo Note 8-15 (both latch edges) |
+| Record Arm 1-8 | Note 48 on `ch0`-`ch7` | Rec Note 0-7 (both latch edges) |
+| Track Selection 1-8 | No note in Generic Mode; the bank's Device knob dump (CC 16-23) | Select Note 24-31 |
+| Clip Stop 1-8 | Note 52 on `ch0`-`ch7` | V-pot push Note 32-39 (reset the knob parameter) |
+| Play / Stop / Record | Notes 91 / 92 / 93 | Play 94 / Stop 93 / Record 95; Stop x2 adds Home 90 |
+| Bank Select Left / Right | Notes 97 / 96 | Bank Left 46 / Right 47; Shift = Channel 48 / 49 |
+| Bank Select Up / Down | Notes 94 / 95 | Cursor Up 96 / Down 97 |
+| Shift | Note 98 | Nothing (local modifier) |
+| Nudge - / + | Notes 101 / 100 | Jog CC 60 with M1/M2/M3 held (`NUDGE_STEP`); Shift = Select nav 86 + M1 + Rewind/Forward |
+| Cue Level | CC 47 (relative) | Jog CC 60 (`CUE_STEP` / `SHIFT_CUE_STEP`) |
+| Crossfader | CC 15 | Zoom 100 + Cursor Left/Right; far left = Zoom + M4 + Right (fit) |
+| Tap Tempo | Note 99 | Nothing (no MCU tap tempo) |
+| Utility row 58-65 | Notes 58-65 on the bank channel `ch0`-`ch8` | Undo 82 / Redo 83, M1 + Marker 84, Marker/Select nav 84/86 + Rewind/Forward, M2 + Loop 85, Loop 89, M2 + Punch 87, F2 55, F1 54; Shift + Detail View = M2 + Name/Value 52 |
+| Pan / Send A-C | Notes 87-90 | Assign Pan 42 / Send 41 (only when switching), then Edit 51 + M1 + Bank/Channel moves to send 1-3 |
+| Scene 1 / 2 / 3 | Notes 82-84 | Nothing (local mode switch) |
+| Master | Note 80 or the Master bank's knob dump | Track 76 / Aux 80 (strips show tracks / buses) |
 | Stop All Clips | Note 81 | Transport Stop 93 + local acknowledgment |
-| Clip grid 1-8 x 1-5 | Notes 53-57 on `ch0`-`ch7` | Function notes / assign / local grid modes |
+| Clip grid 1-8 x 1-5 | Notes 53-57 on `ch0`-`ch7` | Nothing (level-meter display) |
 
 > Note on transport numbering: MCU **Record is note 95 (0x5F)** and **Play is 94 (0x5E)**,
 > whereas the APC40 sends Play as 91, Stop as 92, Record as 93. The encoder must translate,
@@ -188,8 +196,10 @@ Ring rendering by mode:
 | V-pot LED under encoder (bit 6) | Not available; ignore |
 | Transport LED (stop/play/record) | APC40 Play/Stop/Record LEDs |
 | Fader position (pitch bend) | **Not displayable** (APC40 faders are not motorized); read and ignore |
-| LCD text (SysEx) | Unused (APC40 has no display); optionally log |
-| Meters (channel pressure) | Unused; optionally map to grid as a level meter |
+| LCD text (SysEx) and timecode / assignment CCs | Not on the APC40 (no display); shown in the on-screen HUD |
+| Meters (channel pressure) | Clip grid level meters, clip latch on Clip Stop |
+| Loop LED (89) | Rec Quantize LED |
+| Assignment / Edit / navigation / Zoom / Track-Aux LEDs | Tracked as state (not displayed) |
 
 ## Encoder Delta Encoding (Absolute APC40 knob to Relative MCU V-pot)
 
@@ -234,7 +244,9 @@ The engine writes Track Control style `3` (Pan) when Pan mode is selected, and s
 
 ## Cakewalk by BandLab Specifics
 
-- Universal Mode implements the standard message set above.
+- Use the **Cakewalk/SONAR Mode** protocol (the default). It renames some buttons versus
+  the standard MCU layout (for example 89 = Loop, 90 = Home, 70-73 = modifiers M1-M4);
+  *Universal Mode* drops the modifiers.
 - In Track view the 8 V-pots default to **pan**; the Assign buttons (notes 40-45) switch
   the V-pot assignment to Track / Send / Pan / Plug-in / EQ / Instrument.
 - Channel Left/Right (48/49) and Bank Left/Right (46/47) navigate the controlled strips.
@@ -243,6 +255,6 @@ The engine writes Track Control style `3` (Pan) when Pan mode is selected, and s
 
 ## Open Items to Verify on Hardware
 
-- [ ] V-pot LED ring values and modes actually update APC40 rings as expected
-- [ ] Cakewalk's exact V-pot default assignment in the current project view
-- [ ] Whether Cakewalk echoes Select/Mute/Solo/Rec LED states reliably
+- [x] V-pot LED ring values and modes update the APC40 rings (verified)
+- [x] Cakewalk echoes Select/Mute/Solo/Rec LED states (verified)
+- [ ] Cakewalk's exact V-pot default assignment in every project view

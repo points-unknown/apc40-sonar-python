@@ -153,16 +153,24 @@ Everything else on the page can stay at its default.
 - Mute a track with the mouse. The matching APC40 Activator LED changes.
 - Press Play on the APC40. Cakewalk starts playing. With audio playing, the clip grid
   shows level meters. (If it stays dark, press **Shift + Detail View** to turn meters on.)
+- The HUD window shows `Tracking | Trk ?`, and **Scene 1** is lit. Press a **Track
+  Selection** button: Cakewalk selects that track and the HUD shows its number and name.
+- Press **Metronome** (auto-punch) and **Shift + Metronome** (metronome): both toggle in
+  Cakewalk's Control Bar. (If not, check *F2* / *F1* in step 4.)
+
+What every button does: [`quick-reference.md`](quick-reference.md).
 
 ## Daily startup
 
 1. **loopMIDI** is running (automatic if Autostart is on).
 2. **Start apc40sonar.** Double-click `run-apc40-sonar.cmd` in the repository root, or
    run `uv run apc40sonar`. Wait for the lightshow to finish and `running - press Ctrl+C
-   to stop` to appear. Leave the window open.
+   to stop` to appear. The HUD window opens; the APC40 starts in **Tracking** mode
+   (Scene 1 lit). Leave the console window open.
 3. **Open Cakewalk.**
 
-To stop, press Ctrl+C in the apc40sonar window. A desktop shortcut to
+To stop, press Ctrl+C in the apc40sonar window: the grid drains red and the panel goes
+dark (a dark APC40 means the app is not running). A desktop shortcut to
 `run-apc40-sonar.cmd` makes step 2 a single click.
 
 Useful options: `--no-show` skips the lightshow and `--monitor` prints every MIDI
@@ -195,6 +203,8 @@ does is Cakewalk's *Meters* setting, and you can switch it without opening any d
 | Track Selection buttons light but the track is not selected in Cakewalk | *Select highlights track* is unchecked (Cakewalk's default) | Check it ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) and re-save the preset |
 | Every APC40 button and fader is ignored, but LEDs still follow Cakewalk | **Disable handshake** is unchecked | Check it again ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | Shift + Detail View does nothing (log: "sent no meters") | *Protocol* is not *Cakewalk/SONAR Mode* | Set it back ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
+| Everything stopped responding; loopMIDI shows `APC40-IN` (or `-OUT`) as `[muted]` | loopMIDI's flood protection muted the cable after a burst of messages | Quit and restart loopMIDI (or remove and re-add the cable), then restart Cakewalk and apc40sonar |
+| **Metronome** (auto-punch) or **Shift + Metronome** does nothing | *F2* / *F1* not assigned in this project's Mackie Control settings | Apply your `APC40` preset, or set them ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | MCU data shows up in a MIDI track recording | Track input set to Omni | Set MIDI track inputs to your keyboard instead of *All Inputs / Omni* |
 
 `uv run apc40sonar --monitor` shows `apc:`/`mcu:` for incoming messages and

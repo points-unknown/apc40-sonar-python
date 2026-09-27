@@ -26,7 +26,7 @@ panel.
 | **Shift layer** | Off / held / one-shot / locked | Hold, tap, or double-tap **Shift** (see Shift combos) | HUD badge `SHIFT` / `SHIFT 1x` / `SHIFT LOCK` (the APC40's Shift has no LED) | Off | Buttons that have a Shift combo; Shift + Cue Level |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
 | **Mode** | **Tracking**, *Step Sequencer* (not built), **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row) |
-| **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips (faders, buttons, knobs, meters) control |
+| **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips control: faders, strip buttons, Pan/Send knobs, meters and Track Selection |
 
 ## Track strips (x8, one per Cakewalk track in the current bank)
 
@@ -71,9 +71,8 @@ last send.
 
 | Knob target | Knobs control | Rings show | Status |
 |---|---|---|---|
-| **Mix** (current; no button switches it yet) | Nothing | Centered, pan style (startup) | `-` |
-| *Device* (planned) | Focused plug-in / EQ / instrument parameters | Cakewalk's value and ring style | Planned |
-| *C4 surface* (planned) | Plug-in parameters on a second surface, with the Track Control knobs still on pan/sends | C4 ring feedback | Planned |
+| Tracking / Mixing today | Nothing yet | Centered, pan style (startup) | `-` |
+| *Mixing with the C4 surface* (planned) | The selected track's (or bus's) plug-in parameters, 8 at a time, on a second Cakewalk surface; the Track Control knobs stay on Pan/Sends | Cakewalk's parameter values | Planned ([`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md)) |
 
 ### Other continuous controls
 
@@ -82,7 +81,7 @@ last send.
 | **Master fader** | Master bus volume (set Cakewalk's Mackie *Master Fader* to Bus + Master bus; see setup guide) | **Live** | - |
 | **Crossfader** | **Horizontal zoom**: slide right = zoom in, left = zoom out (one step per ~6/127 of travel); **fully left = fit project**. Cakewalk's Track view needs keyboard focus | **Live** | - |
 | **Cue Level** | Move the playhead, clockwise = forward: **1 beat** per detent (`CUE_STEP`). **Shift + Cue Level** = fine: **30 ticks** (1/32 of a beat) per detent (`SHIFT_CUE_STEP`) | **Live** | - |
-| **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |
+| **Footswitch 1 / 2** | - | `-` | Not planned |
 
 ## Knob mode buttons
 
@@ -148,8 +147,8 @@ for a button. Buttons without a combo do their normal action while shifted.
 | **Shift + Left / Right arrow** | Go to selection start / end (Tracking) | **Live** |
 | **Shift + Nudge - / +** | Selection start / end = playhead | **Live** |
 
-Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
-Shift + Scene = record-enable scene, other alternate strip actions.
+Free for future combos: Shift + Device On/Off, Shift + Rec Quantize, Shift + MIDI
+Overdub, and the strip buttons (e.g. Shift + Mute = clear all mutes).
 
 ## On-screen HUD
 
@@ -166,7 +165,7 @@ off with `--no-hud` or `HUD=off` in `.env`. Settings (`HUD_POSITION`,
 | Time | Bars.beats.ticks (or SMPTE), from Cakewalk |
 | `Assign SE` | Cakewalk's assignment display (`PN` = pan, `SE` = sends) |
 | Badges | **LOOP**, **ZOOM** (crossfader zoom mode), **METERS** (Cakewalk meters on), **SHIFT** / **SHIFT 1x** / **SHIFT LOCK** (held / one-shot / locked); dim = off |
-| Toast (right) | ~1 s message for each action: `Send B`, `Bank >`, `Channel <`, `Go to start`, `Stop all`, `Zoom: fit project`, `Cakewalk meters on`, `Metronome (rec) toggled`, and Cakewalk's `Track 12: "Vocals"` |
+| Toast (right) | ~1 s message for each action: `Tracking mode` / `Mixing mode`, `Undo` / `Redo`, `Marker inserted`, `Next marker`, `Selection start = playhead`, `Loop <- selection`, `Punch <- selection`, `Auto-punch toggled`, `Metronome (rec) toggled`, `Tracks` / `Buses`, `Send B`, `Bank >`, `Channel <`, `Go to start`, `Stop all`, `Zoom: fit project`, `Cakewalk meters on`, and Cakewalk's `Track 12: "Vocals"` |
 | Status line | `no link to apc40sonar` (app not running), `Cakewalk idle` (no feedback lately), red `Strip layout!` (Cakewalk flipped the knobs to one track) |
 | Strips (expanded layout) | Per strip: name (a knob's value briefly replaces it, in white), param label or value, R/S/M dots, level meter with clip mark; selected strip highlighted |
 

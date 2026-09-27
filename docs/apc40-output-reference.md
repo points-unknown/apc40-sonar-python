@@ -163,10 +163,11 @@ The integration is bidirectional; these are the APC40-to-host messages the encod
 |---|---|---|---|
 | Channel faders 1-8 | CC 7 | `cc7` | `ch0`-`ch7` |
 | Track Control knobs 1-8 | CC 48-55 | `cc48`-`cc55` | `ch0` |
-| Device Control knobs 1-8 | CC 16-23 | `cc16`-`cc23` | `ch0` |
-| Record Arm / Solo / Activator / Select / Clip Stop | Notes 48-52 | `note48`-`note52` | per-track `ch0`-`ch7` |
+| Device Control knobs 1-8 | CC 16-23 | `cc16`-`cc23` | selected bank `ch0`-`ch8` (also dumped on each Track Selection / Master press) |
+| Record Arm / Solo / Activator / Clip Stop | Notes 48-50, 52 | `note48`-`note52` | per-track `ch0`-`ch7` |
+| Track Selection | (none in Generic Mode: local radio group; see the Device knob dump) | - | - |
 | Clip grid rows 1-5 | Notes 53-57 | `note53`-`note57` | per-track `ch0`-`ch7` |
-| Utility row (Clip/Track to Metronome) | Notes 58-65 | `note58`-`note65` | `ch0` |
+| Utility row (Clip/Track to Metronome) | Notes 58-65 (58-61 latch, 62-65 momentary) | `note58`-`note65` | selected bank `ch0`-`ch8` |
 | Master / Stop All Clips | Notes 80-81 | `note80`-`note81` | `ch0` |
 | Scene 1-5 | Notes 82-86 | `note82`-`note86` | `ch0` |
 | Transport | Notes 91-101 | `note91`-`note101` | `ch0` |

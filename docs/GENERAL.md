@@ -47,7 +47,7 @@ APC40 hardware <--rtmidi--> engine <--rtmidi--> APC40-IN  --> Cakewalk (Mackie C
 | `apc40` | APC40 constants, message builders, the Type 0 introduction SysEx, and the cached/forced LED+ring renderer |
 | `mcu` | Mackie Control encoders (real Note On/Off, 14-bit faders, relative V-pot deltas, packed ring bytes) and decoders |
 | `engine` | State machine and translation: faders, strip buttons, transport, clip grid, knob modes, feedback rendering, level meters, flashes |
-| `lightshow` | The startup lightshow (lights every host-addressable control, then blacks out) |
+| `lightshow` | The startup lightshow (lights every host-addressable control, then blacks out) and the exit animation |
 | `mcu_display` | Decoders for Cakewalk's MCU LCD SysEx and 7-segment timecode/assignment CCs (HUD only) |
 | `hud_state` | `HudSnapshot`, the immutable engine state the HUD shows |
 | `hud_link` | The only HUD I/O: UDP JSON publisher/receiver on 127.0.0.1 and the HUD child-process supervisor |
@@ -122,8 +122,8 @@ Process-environment values override the file, so a one-off run can use
 | Record Arm (note 48) | Rec notes 0-7 |
 | Solo (note 49) | Solo notes 8-15 |
 | Activator/Mute (note 50) | Mute notes 16-23 |
-| Track Select (note 51) | Select notes 24-31 |
-| Clip Stop (note 52) | V-pot push notes 32-39 |
+| Track Selection (no note in Generic Mode: detected from the bank's knob dump, see below) | Select notes 24-31 |
+| Clip Stop (note 52) | V-pot push notes 32-39 (Cakewalk resets that strip's knob parameter to its default) |
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
 | Nudge - / + (101/100) | Jog CC 60 x `NUDGE_STEP`, repeated by the engine while held (see *Playhead steps*) |
 | Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
@@ -133,6 +133,7 @@ Process-environment values override the file, so a one-off run can use
 | Metronome (65) | Mackie F2 (55): auto-punch (preset); Shift = F1 (54): metronome during record |
 | Master (80, or its bank's knob dump) | Cakewalk Track 76 / Aux 80: strips show tracks / buses (toggle, from their LEDs) |
 | Scene 1 / 2 / 3 (82-84) | Mode: Tracking / Step Sequencer (not built) / Mixing |
+| Utility row 58-62, 64 and Shift + Nudge | Tracking editing and navigation (see *Modes and the Tracking utility row*) |
 | Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
 | Crossfader (CC 15, absolute) | Horizontal zoom via MCU Zoom 100 + Cursor Left/Right (see below) |
 | Cue Level (CC 47, relative) | Jog CC 60 x `CUE_STEP` per detent (`SHIFT_CUE_STEP` with Shift held), max 4 detents per event |
@@ -247,8 +248,8 @@ The crossfader zooms Cakewalk's timeline horizontally, entirely over Mackie Cont
   released with Note On velocity 0). It re-arms once the slider is
   back above 10, so end-of-travel jitter does not repeat it. After a fit, moving right
   zooms in step by step, so the slider position roughly tracks the zoom level.
-- No preset setting is needed (the earlier plan used an F2 assignment; Cakewalk's
-  built-in Zoom + M4 + Right replaces it).
+- No preset setting is needed: Cakewalk's built-in Zoom + M4 + Right does the fit, so
+  F2 is free (the preset now uses it for auto-punch).
 
 Cakewalk's master fader defaults to strip type *Master*, which is the hardware-output
 strip, not the project's Master **bus**. Set the surface's **Master Fader** group to
@@ -256,9 +257,11 @@ strip, not the project's Master **bus**. Set the surface's **Master Fader** grou
 echoes master fader moves back as Pitch Bend ch8, which the engine ignores like all fader
 feedback.
 
-Feedback renders MCU notes 0-31 to the strip LEDs, transport/Click/Cycle to the
-corresponding APC40 LEDs, MCU CC 48-55 to the ring banks, and MCU channel meters to the
-clip grid (see below). Fader feedback is ignored (the APC40 faders are not motorized).
+Feedback renders MCU notes 0-31 to the strip LEDs, Play/Stop/Record to the transport
+LEDs, Cakewalk's loop LED (89) to Rec Quantize, MCU CC 48-55 to the ring banks, and MCU
+channel meters to the clip grid (see below). Cakewalk's assignment (41/42), Edit (51),
+navigation (84-87), Zoom (100) and Track/Aux (76/80) LEDs are tracked as state, not shown.
+Fader feedback is ignored (the APC40 faders are not motorized).
 
 ### Level meters
 
@@ -278,7 +281,7 @@ is a bottom-up meter for its track, and the Clip Stop LED is that track's clip i
   one level every `METER_DECAY_MS` (serviced by `tick()`); a new value restarts the timer.
 - The Clip Stop LED turns red on the host overload flag **or** on level 13 (not every host
   sends the flag) and stays latched until the host clears it or **Stop All Clips** is
-  pressed. Clip Stop still sends V-pot push when pressed.
+  pressed. Pressing Clip Stop still resets that strip's knob parameter.
 - While meters are on the grid pads do not light when pressed (the grid is a display).
   With `METERS=off` the pads go back to momentary green and nothing meter-related is drawn.
 - LED writes are de-duplicated, so a steady signal costs no traffic; only segment changes
@@ -324,6 +327,10 @@ Shift were not active.
 | Shift + Detail View (62) | Toggle Cakewalk's Mackie Control meters (see above) |
 | Shift + Bank Select Left / Right | Move the strip window by one track (MCU Channel Left/Right) |
 | Shift + Metronome (65) | MCU F1 (54): the preset assigns it to Cakewalk's *Metronome During Record* |
+| Shift + Clip/Track (58) | Redo (Tracking) |
+| Shift + Left / Right arrow (60/61) | Go to selection start / end (Tracking) |
+| Shift + Nudge - / + | Selection start / end = playhead |
+| Shift + Cue Level | Fine playhead step (`SHIFT_CUE_STEP`; held or locked Shift only) |
 
 ### Latching buttons
 
@@ -365,8 +372,8 @@ transmits all eight Device knob positions (CC 16-23) on that track's channel. Th
 collects Device knob messages into a burst; once no more arrive for
 `KNOB_DUMP_QUIET_FRAMES` (2 frames, ~40 ms), a burst holding all eight knobs on exactly
 **one** channel 0-7 becomes an MCU Select for that strip. A single knob turn never sends
-all eight, the Master button (channel 8) selects no track, and a burst spanning several
-channels (a whole-surface dump) is ignored. Cakewalk only selects the track itself with
+all eight, a Master-bank dump (channel 8) toggles Tracks/Buses (see *Modes*), and a burst
+spanning several channels (a whole-surface dump) is ignored. Cakewalk only selects the track itself with
 *Select highlights track* checked in the Mackie Control preset.
 
 ### Knob smoothing
@@ -391,9 +398,10 @@ display matches a centered pan until real feedback arrives.
 Before any other APC40-specific message the app sends the Type 0 introduction
 (`F0 47 7F 73 60 00 04 <mode> <major> <minor> <bugfix> F7`) to select the configured
 operating mode. The lightshow then lights every host-addressable control and blacks out,
-and `render_baseline()` leaves the surface ready: Pan mode, both ring banks centered,
-Master and Scene 5 lit. Stop All Clips (note 81) has no host-addressable LED and is not
-used; it is acknowledged by flashing the Stop LED and the eight Clip Stop LEDs.
+and `render_baseline()` leaves the surface ready: Tracking mode with Scene 1 lit, Pan
+knob mode, both ring banks centered. Stop All Clips (note 81) has no host-addressable LED;
+its press stops the transport, clears the clip latches, and is acknowledged by flashing
+the Stop LED and the eight Clip Stop LEDs.
 
 ### On-screen HUD
 
@@ -402,10 +410,11 @@ doing and what Cakewalk reports. It is on by default; turn it off with `HUD=off`
 `--no-hud`.
 Design notes: [`plans/hud-concept.md`](../plans/hud-concept.md).
 
-- **Compact:** knob mode (`PAN` / `SEND A (1)` ...), strip window (`Trk 9-16`),
-  selected track, transport, BBT/SMPTE time, the Cakewalk assignment display, badges
-  (Loop, Zoom mode, Cakewalk meters, Shift), a toast for actions with no LED feedback
-  (`Bank >`, `Send B`, `Go to start`, `Metronome (rec) toggled`, Cakewalk's
+- **Compact:** knob mode (`PAN` / `SEND A (1)` ...), mode and strip window
+  (`Tracking | Trk 9-16`, `Mixing | Buses`), selected track, transport, BBT/SMPTE time,
+  the Cakewalk assignment display, badges (Loop, Zoom mode, Cakewalk meters, Shift as
+  `SHIFT` / `SHIFT 1x` / `SHIFT LOCK`), a toast for actions with no LED feedback (`Undo`,
+  `Next marker`, `Loop <- selection`, `Auto-punch toggled`, `Bank >`, `Send B`, Cakewalk's
   `Track 12: "Vocals"` messages ...), and a status line (`no link`, `Cakewalk idle`,
   `Strip layout!` when the assignment dot shows Cakewalk flipped the knobs).
 - **Expanded** adds the 8 strips: LCD name (a V-pot value peek briefly replaces it,
@@ -424,8 +433,9 @@ MCU input only.
 Cakewalk never reports the strip-window offset. The HUD derives it from a track select:
 Cakewalk lights the strip's Select LED and shows `Track N: "name"`, so offset =
 N - 1 - strip. Bank/Channel presses shift it provisionally (shown as `Trk ~9-16`) until
-the next select confirms it; before the first select it shows `Trk ?`. The Metronome
-(F1) toggle has no Cakewalk feedback, so the HUD can only echo that it was pressed.
+the next select confirms it; before the first select it shows `Trk ?`. The metronome (F1)
+and auto-punch (F2) toggles have no Cakewalk feedback, so the HUD can only echo that they
+were pressed.
 
 
 ### Exit
@@ -450,6 +460,10 @@ single bad event cannot stall the loop.
   track buttons, so it was reverted.
 - **Stop All Clips** has no host-addressable LED on the original APC40 (see above).
 - **Faders** are not motorized, so Cakewalk fader feedback cannot be displayed.
+- **Auto-punch and metronome** have no state feedback over Mackie Control (they are
+  F-key commands), so no LED or HUD badge can show them.
+- **Buses** cannot be *selected* in Cakewalk from the surface (*Select highlights track*
+  only works on tracks); Track Selection on buses moves the Mackie surface's focus only.
 - **Select/Mute/Solo/Rec echo** and Cakewalk's exact V-pot default assignment still need
   confirmation across project views; see the open items in [`mcu-mapping.md`](mcu-mapping.md).
 
@@ -463,6 +477,8 @@ single bad event cannot stall the loop.
 | LEDs flicker continuously | Feedback loop | Ensure only this app routes back to the APC40; never pass MCU feedback straight through |
 | Controls do nothing but LEDs work | Surface not added, or wrong In/Out port | Re-add Mackie Control with In `APC40-IN`, Out `APC40-OUT` |
 | Knob feels too coarse or too slow | Step limit / noise gate | Tune `KNOB_STEP_LIMIT` (1-2 for finer) and `KNOB_NOISE_THRESHOLD` |
+| Everything stops responding; loopMIDI shows a cable as `[muted]` | loopMIDI's flood protection muted it (too many messages) | Restart loopMIDI, then Cakewalk and the app. The playhead flood that caused this is capped (see *Playhead steps*) |
+| Playhead moves too far / too little | Step sizes | Tune `CUE_STEP`, `SHIFT_CUE_STEP`, `NUDGE_STEP` |
 
 Use `--monitor` to see both directions and identify whether a failure is in the
 APC40-to-MCU path or the Cakewalk-to-APC40 path.
@@ -477,7 +493,10 @@ APC40-to-MCU path or the Cakewalk-to-APC40 path.
 
 ### Design decisions carried over from the Lua prototype
 
-- Send **real Note Off** (0x80) for MCU buttons; never rely on Note On velocity 0.
+- Send **real Note Off** (0x80) for ordinary MCU button releases; the original
+  double-toggle bug came from Note On velocity 0 presses. **Exception:** Cakewalk drops
+  0x80 for its buttons, so anything it acts on at *release* (modifiers M1-M4, Loop, cursor
+  keys, Rewind/Forward) is released with Note On velocity 0 (`mcu.cakewalk_release`).
 - **Do not de-duplicate** output at the transport; send every intended message. (The
   renderer only de-duplicates identical LED/ring values, with a `force` escape hatch.)
 - **Do not gate input handling** behind the startup show; a control surface must always
@@ -489,8 +508,10 @@ APC40-to-MCU path or the Cakewalk-to-APC40 path.
 
 ### Roadmap
 
-1. Utility row (notes 58-65), Scene buttons, and device/plug-in mode.
-2. Keystroke bridge for the keyboard-only commands in [`cakewalk-command-matrix.md`](cakewalk-command-matrix.md)
-   (needs an input-injection dependency such as `pydirectinput` or `pynput`, and the
-   dedicated conflict-free Cakewalk keymap).
-3. Grid modes and instrument/drum note routing.
+See [`TODO.md`](../TODO.md). In short:
+
+1. **Mixing mode**: the Mackie Control C4 second surface for plug-in control on the Device
+   knobs ([`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md)).
+2. **Step sequencer** on Scene 2.
+3. Robustness: reconnect handling, readable `--monitor`.
+4. Keystroke bridge only for what Mackie Control cannot reach (tap tempo).
