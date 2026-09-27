@@ -641,3 +641,52 @@ def test_master_fader_channel_is_not_significant():
     eng.on_apc_message((0xB8, apc.CC_MASTER_LEVEL, 64))
 
     assert rec.mcu_msgs == [mcu.fader_from_7bit(8, 64)]
+
+
+# ---------------------------------------------------------------------------
+# Track banking: Bank Select Left/Right and Shift + Left/Right
+# ---------------------------------------------------------------------------
+
+
+def click(note):
+    return [mcu.button_press(note), mcu.button_release(note)]
+
+
+def test_bank_left_right_move_the_strip_window_by_eight():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_RIGHT, 127))
+    eng.on_apc_message((0x80, apc.NOTE_RIGHT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_LEFT, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_BANK_RIGHT) + click(mcu.NOTE_BANK_LEFT)
+
+
+def test_shift_left_right_move_the_strip_window_by_one():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_RIGHT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_LEFT, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CHANNEL_RIGHT) + click(mcu.NOTE_CHANNEL_LEFT)
+
+
+def test_up_down_still_send_cursor_keys_with_or_without_shift():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_UP, 127))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_DOWN, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_UP) + click(mcu.NOTE_DOWN)
+
+
+def test_bank_arrow_led_flashes_to_acknowledge():
+    eng, rec, _ = make_engine(flash_frames=1)
+
+    eng.on_apc_message((0x90, apc.NOTE_RIGHT, 127))
+    assert (0x90, apc.NOTE_RIGHT, 127) in rec.apc_msgs
+
+    eng.tick()
+    assert rec.apc_msgs[-1] == (0x80, apc.NOTE_RIGHT, 0)

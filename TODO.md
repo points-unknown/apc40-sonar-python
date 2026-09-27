@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 101 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 105 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -115,13 +115,16 @@ Tasks:
 
 ### Navigation and transport
 
-- [ ] Bank +/- (MCU 46/47) and Channel +/- (48/49) from APC buttons; show the bank on the grid
+- [x] Bank +/- (MCU 46/47) on Bank Select Left/Right and Channel +/- (48/49) on Shift +
+      Left/Right (done). Bank Select arrow LEDs flash on press
+- [ ] Show which bank is active (e.g. briefly on the grid); Cakewalk does not report the
+      strip offset over MCU, so it would have to be tracked locally
 - [x] Master fader (APC CC 14) -> MCU Pitch Bend ch 8 (done)
 - [ ] Considering the crossfader (APC CC 15): map to a configurable CC or leave unused
 - [ ] Rewind/Forward, Cycle, Punch/Drop, Nudge, Zoom, Scrub, Markers
-- [ ] Bank Select arrows (94-97) currently send MCU cursor Up/Down/Left/Right; decide
-      cursor vs. bank/channel (e.g. plain = bank, Shift = cursor). In step-sequencer mode
-      they page steps (Left/Right) and lanes (Up/Down) instead
+- [x] Bank Select arrows decided: Left/Right = bank, Shift + Left/Right = channel,
+      Up/Down = Cakewalk arrow keys (done). In step-sequencer mode they will page steps
+      (Left/Right) and lanes (Up/Down) instead
 - [ ] Nudge + / - (100/101): unassigned; candidates are MCU Rewind/Forward or Nudge
 - [ ] Tap Tempo (99): only flashes its LED; needs the keystroke bridge for real tap tempo
 - [ ] Cue Level knob (CC 47, relative): unassigned; candidate is the MCU jog wheel (CC 60)

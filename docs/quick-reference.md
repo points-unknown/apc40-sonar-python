@@ -111,7 +111,9 @@ These buttons work, and their LEDs show, whichever track (or Master) is selected
 | **Play** | Play | From Cakewalk | **Live** | - |
 | **Stop** | Stop | From Cakewalk | **Live** | - |
 | **Record** | Record | From Cakewalk | **Live** | - |
-| **Bank Select Up / Down / Left / Right** | MCU cursor Up / Down / Left / Right | - | **Live** | Bank +/- and Channel +/- (move the 8-track window); cursor possibly on Shift |
+| **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...) | Flashes on press | **Live** | Page steps in the step sequencer |
+| **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
+| **Bank Select Up / Down** | Cakewalk arrow key Up / Down | - | **Live** | Page lanes in the step sequencer |
 | **Shift** | Modifier (hold) | Lit while held | **Live** | More Shift combos (see below) |
 | **Tap Tempo** | - (LED flash only) | Flash | *Provisional* | Tap tempo keystroke (needs keystroke bridge) |
 | **Nudge + / -** | - | - | `-` | MCU Rewind/Forward or Nudge |
@@ -125,6 +127,7 @@ action while Shift is held.
 | Combo | Action | Status |
 |---|---|---|
 | **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
+| **Shift + Bank Select Left / Right** | Move the 8-track window by 1 track | **Live** |
 
 Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
 Shift + Scene = record-enable scene, other alternate strip actions.

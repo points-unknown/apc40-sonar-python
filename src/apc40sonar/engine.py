@@ -91,17 +91,29 @@ METER_SEGMENTS = (
 )
 METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
 
-# APC40 global buttons -> MCU notes (channel 0).
+# APC40 global buttons -> MCU notes (channel 0). Cakewalk treats the MCU
+# cursor buttons as keyboard arrow keys; Bank Left/Right moves the 8-strip
+# window by 8 tracks.
 APC_GLOBAL_BUTTONS = {
     apc.NOTE_PLAY: mcu.NOTE_PLAY,
     apc.NOTE_STOP: mcu.NOTE_STOP,
     apc.NOTE_RECORD: mcu.NOTE_RECORD,
     apc.NOTE_UP: mcu.NOTE_UP,
     apc.NOTE_DOWN: mcu.NOTE_DOWN,
-    apc.NOTE_LEFT: mcu.NOTE_LEFT,
-    apc.NOTE_RIGHT: mcu.NOTE_RIGHT,
+    apc.NOTE_LEFT: mcu.NOTE_BANK_LEFT,
+    apc.NOTE_RIGHT: mcu.NOTE_BANK_RIGHT,
     apc.NOTE_UTIL_METRONOME: mcu.NOTE_CLICK,
 }
+
+# Shift + APC40 button -> MCU note. Channel Left/Right moves the window by
+# one track.
+APC_SHIFT_BUTTONS = {
+    apc.NOTE_LEFT: mcu.NOTE_CHANNEL_LEFT,
+    apc.NOTE_RIGHT: mcu.NOTE_CHANNEL_RIGHT,
+}
+
+# Buttons whose LED flashes to acknowledge a press (no host feedback exists).
+APC_FLASH_ON_PRESS = frozenset({apc.NOTE_LEFT, apc.NOTE_RIGHT})
 
 
 class Engine:
@@ -299,14 +311,22 @@ class Engine:
 
         # Shift layer: mapped combos replace the button's normal action;
         # unmapped ones fall through unchanged.
-        if self.shift and pressed and note == apc.NOTE_UTIL_DETAIL_VIEW:
-            self.toggle_cakewalk_meters()
-            return
+        if self.shift and pressed:
+            if note == apc.NOTE_UTIL_DETAIL_VIEW:
+                self.toggle_cakewalk_meters()
+                return
+            shifted = APC_SHIFT_BUTTONS.get(note)
+            if shifted is not None:
+                self._mcu_click(shifted)
+                self._flash_global(note)
+                return
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)
         if mcu_note is not None:
             if pressed:
                 self._mcu_click(mcu_note)
+                if note in APC_FLASH_ON_PRESS:
+                    self._flash_global(note)
             return
 
         if not pressed:

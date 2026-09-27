@@ -101,6 +101,9 @@ Process-environment values override the file, so a one-off run can use
 | Track Select (note 51) | Select notes 24-31 |
 | Clip Stop (note 52) | V-pot push notes 32-39 |
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
+| Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
+| Shift + Bank Select Left / Right | Channel Left 48 / Channel Right 49 (window moves by 1) |
+| Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
 | Metronome (65) | Click note 89 |
 | Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 + ring style |
 
@@ -164,6 +167,7 @@ Shift were not held.
 | Combo | Action |
 |---|---|
 | Shift + Detail View (62) | Toggle Cakewalk's Mackie Control meters (see above) |
+| Shift + Bank Select Left / Right | Move the strip window by one track (MCU Channel Left/Right) |
 
 ### Latching buttons
 
