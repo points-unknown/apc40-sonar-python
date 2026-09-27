@@ -211,6 +211,17 @@ SCENE_MODE = {note: mode for mode, note in MODE_SCENE.items()}
 MODE_TOASTS = {"tracking": "Tracking mode", "sequencer": "Step sequencer mode", "mixing": "Mixing mode"}
 BUILT_MODES = frozenset({"tracking", "mixing"})
 
+# In Generic Mode the first four utility buttons (58-61) LATCH: the APC40
+# lights its own LED and sends Note On on one press, and turns it off and
+# sends Note Off on the next. Both edges are one press of a one-shot action,
+# and the engine forces the LED back off so the buttons stay dark.
+APC_LATCHING_UTILITY = frozenset({
+    apc.NOTE_UTIL_CLIP_TRACK,
+    apc.NOTE_UTIL_DEVICE_ONOFF,
+    apc.NOTE_UTIL_LEFT_ARROW,
+    apc.NOTE_UTIL_RIGHT_ARROW,
+})
+
 # Utility-row buttons that change with the mode; the rest of the row (62-65)
 # works the same in every mode. In Mixing, 58-61 are reserved for C4 plug-in
 # control (not built yet) and do nothing.
@@ -503,6 +514,8 @@ class Engine:
     def on_apc_note(self, channel: int, note: int, velocity: int) -> None:
         pressed = velocity > 0
         per_track_end = apc.NOTE_CLIP_ROW1 + self.rows - 1
+        if note in APC_LATCHING_UTILITY and channel < apc.DEVICE_BANKS:
+            pressed = True  # both edges of a latching button are one press
 
         if note == apc.NOTE_SHIFT:
             self._on_shift(pressed)
@@ -842,6 +855,8 @@ class Engine:
     def _on_mode_button(self, note: int, shifted: bool) -> bool:
         """Handle a mode-dependent utility-row press. True when handled."""
 
+        if note in APC_LATCHING_UTILITY:
+            self.apc.global_note(note, apc.LED_OFF, force=True)  # undo the local latch
         if note in TRACKING_ONLY and self.mode != "tracking":
             return True  # Mixing: reserved for C4 plug-in control
         if note == apc.NOTE_UTIL_CLIP_TRACK:

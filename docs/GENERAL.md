@@ -334,6 +334,12 @@ ignores the "off" edge and the button appears to need two presses to clear. Trac
 is a radio group, so only its "on" edge acts; Clip Stop, transport, navigation and
 Metronome are momentary and act on the press edge.
 
+The first four utility buttons (Clip/Track, Device On/Off, Left/Right arrow, 58-61)
+latch the same way: the APC40 lights its own LED and sends Note On on one press, then
+turns it off and sends Note Off on the next. The engine treats **both edges as a press**
+of their one-shot action (undo, marker, ...) and forces the LED back off, so they stay
+dark and act on every press. The other four (62-65) are momentary.
+
 ### Device Control banks
 
 The APC40 keeps nine Device Control banks (Tracks 1-8 and Master), chosen by the Track

@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 235 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 237 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -57,8 +57,9 @@ Loop 85, Select 86, Punch 87) behind the scenes and always returns to Normal nav
 - [x] Build the table above (Loop on/off and its LED moved from 65 to 63) (done)
 - [x] Preset: F2 = Cakewalk's auto-punch toggle (the crossfader's fit uses Cakewalk's
       built-in Zoom + M4 + Right, so F2 was free); in the setup guide (done)
-- [ ] Verify on hardware: marker jumps, selection edges, loop/punch from selection,
-      auto-punch F2, Master Tracks/Buses (note 80 vs. bank dump)
+- [x] Verified on hardware: marker jumps, selection edges, loop/punch from selection,
+      auto-punch F2, modes, Master Tracks/Buses, Shift latching, playhead steps (done).
+      58-61 latch in Generic Mode, so both edges count as a press
 - [x] Nudge - / + move the playhead by `NUDGE_STEP`, repeating while held (done)
 - [x] Playhead step sizes in `.env`: `CUE_STEP`, `SHIFT_CUE_STEP` (Shift + Cue = fine),
       `NUDGE_STEP`, `NUDGE_REPEAT_MS` as `<count> <measure|beat|tick|jog>` (done)

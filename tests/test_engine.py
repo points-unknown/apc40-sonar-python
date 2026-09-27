@@ -1520,6 +1520,11 @@ def nav(nav_note, inner):
     return [*click(nav_note), *inner, *click(nav_note)]
 
 
+def tap(eng, note, channel=0):
+    """One physical press of a latching utility button (58-61): one edge."""
+    eng.on_apc_message((0x90 | channel, note, 127))
+
+
 def test_render_baseline_starts_in_tracking_with_scene_1_lit():
     eng, rec, _ = make_engine()
 
@@ -1601,9 +1606,9 @@ def test_metronome_button_is_auto_punch_and_shift_is_the_metronome():
 def test_undo_and_redo():
     eng, rec, _ = make_engine()
 
-    press(eng, apc.NOTE_UTIL_CLIP_TRACK)
+    tap(eng, apc.NOTE_UTIL_CLIP_TRACK)
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
-    press(eng, apc.NOTE_UTIL_CLIP_TRACK)
+    tap(eng, apc.NOTE_UTIL_CLIP_TRACK)
 
     assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) + click(mcu.NOTE_CW_REDO)
 
@@ -1611,7 +1616,7 @@ def test_undo_and_redo():
 def test_insert_marker():
     eng, rec, _ = make_engine()
 
-    press(eng, apc.NOTE_UTIL_DEVICE_ONOFF)
+    tap(eng, apc.NOTE_UTIL_DEVICE_ONOFF)
 
     assert rec.mcu_msgs == with_mod(mcu.NOTE_M1, mcu.NOTE_CW_MARKER)
 
@@ -1619,8 +1624,8 @@ def test_insert_marker():
 def test_arrows_jump_between_markers_and_return_to_normal_navigation():
     eng, rec, _ = make_engine()
 
-    press(eng, apc.NOTE_UTIL_LEFT_ARROW)
-    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+    tap(eng, apc.NOTE_UTIL_LEFT_ARROW)
+    tap(eng, apc.NOTE_UTIL_RIGHT_ARROW)
 
     assert rec.mcu_msgs == (
         nav(mcu.NOTE_CW_MARKER, cw_press(mcu.NOTE_REWIND))
@@ -1632,7 +1637,7 @@ def test_marker_navigation_already_on_is_not_toggled_off_first():
     eng, rec, _ = make_engine()
     eng.on_mcu_message((0x90, mcu.NOTE_CW_MARKER, 127))  # Cakewalk already in marker nav
 
-    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+    tap(eng, apc.NOTE_UTIL_RIGHT_ARROW)
 
     assert rec.mcu_msgs == [*cw_press(mcu.NOTE_FORWARD), *click(mcu.NOTE_CW_MARKER)]
 
@@ -1641,8 +1646,8 @@ def test_shift_arrows_go_to_selection_start_and_end():
     eng, rec, _ = make_engine()
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
 
-    press(eng, apc.NOTE_UTIL_LEFT_ARROW)
-    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+    tap(eng, apc.NOTE_UTIL_LEFT_ARROW)
+    tap(eng, apc.NOTE_UTIL_RIGHT_ARROW)
 
     assert rec.mcu_msgs == (
         nav(mcu.NOTE_CW_SELECT_NAV, cw_press(mcu.NOTE_REWIND))
@@ -1755,4 +1760,27 @@ def test_modifier_is_always_released_even_when_capped():
     presses = rec.mcu_msgs.count(mcu.button_press(mcu.NOTE_M3))
     releases = rec.mcu_msgs.count(mcu.cakewalk_release(mcu.NOTE_M3))
     assert presses == releases
+
+
+def test_latching_utility_buttons_act_on_both_edges_and_stay_dark():
+    # 58-61 latch in Generic Mode: Note On lights the LED, the next press sends
+    # Note Off. Each edge is one press, and the LED is forced back off.
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_UTIL_RIGHT_ARROW, 127))  # 1st press (latch on)
+    eng.on_apc_message((0x80, apc.NOTE_UTIL_RIGHT_ARROW, 127))  # 2nd press (latch off)
+
+    one_jump = nav(mcu.NOTE_CW_MARKER, cw_press(mcu.NOTE_FORWARD))
+    assert rec.mcu_msgs == one_jump * 2
+    leds = [m for m in rec.apc_msgs if m[1] == apc.NOTE_UTIL_RIGHT_ARROW]
+    assert leds and all(m[0] & 0xF0 == 0x80 for m in leds)  # only "off" writes
+
+
+def test_latching_undo_works_on_every_press():
+    eng, rec, _ = make_engine()
+
+    for status in (0x90, 0x80, 0x90):
+        eng.on_apc_message((status, apc.NOTE_UTIL_CLIP_TRACK, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) * 3
 
