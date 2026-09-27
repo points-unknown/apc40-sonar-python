@@ -21,6 +21,10 @@ from typing import Callable, Sequence
 
 TRACKS = 8
 ROWS = 5
+# Device Control banks: Tracks 1-8 plus Master. The Device Control buttons
+# (notes 58-65) and knobs (CC 16-23) report on the selected bank's channel
+# (0-7, or 8 for Master), and their LEDs are stored per bank.
+DEVICE_BANKS = 9
 
 # ---------------------------------------------------------------------------
 # Per-track note numbers (sent on channels 0-7)
@@ -302,9 +306,18 @@ class Apc40Output:
         self.note(track, NOTE_CLIP_STOP, state, force=force)
 
     def global_note(self, note: int, velocity: int, *, force: bool = False) -> None:
-        """A channel-0 LED (utility row, Master, Scenes, transport)."""
+        """A global LED (utility row, Master, Scenes, transport).
 
-        self.note(0, note, velocity, force=force)
+        Utility-row LEDs are per Device Control bank, so they are written to
+        all nine bank channels and stay visible whichever bank is selected.
+        Every other global LED is on channel 0.
+        """
+
+        if note in NOTE_UTIL_ROW:
+            for bank in range(DEVICE_BANKS):
+                self.note(bank, note, velocity, force=force)
+        else:
+            self.note(0, note, velocity, force=force)
 
     def ring_position(self, cc: int, value: int, *, force: bool = False) -> None:
         """Set an LED-ring position (0-127) on *cc*."""

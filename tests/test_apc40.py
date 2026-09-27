@@ -88,10 +88,24 @@ def test_clear_all_turns_everything_off():
     cc_offs = [m for m in sent if (m[0] & 0xF0) == 0xB0]
 
     # 8 tracks * (5 pads + 1 clip stop + 4 strip LEDs) = 80
-    # + utility 8 + master 1 + scenes 5 + transport/nav 11 + pan/send 4 = 109
-    assert len(note_offs) == 109
+    # + utility 8 notes * 9 Device Control banks = 72
+    # + master 1 + scenes 5 + transport/nav 11 + pan/send 4 = 173
+    assert len(note_offs) == 173
     # 8 knobs * (track position + track style + device position + device style) = 32
     assert len(cc_offs) == 32
+
+
+def test_utility_row_leds_are_written_to_every_device_bank():
+    sent: list[tuple[int, ...]] = []
+    out = apc.Apc40Output(sent.append)
+
+    out.global_note(apc.NOTE_UTIL_METRONOME, apc.LED_ON)
+    out.global_note(apc.NOTE_PLAY, apc.LED_ON)
+
+    assert sent == [
+        *[(0x90 | bank, apc.NOTE_UTIL_METRONOME, 127) for bank in range(apc.DEVICE_BANKS)],
+        (0x90, apc.NOTE_PLAY, 127),
+    ]
 
 
 def test_build_introduction_generic_mode_is_exact():

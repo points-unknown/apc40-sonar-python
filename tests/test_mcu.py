@@ -86,3 +86,14 @@ def test_decode_cc_and_pitch_bend():
 
 def test_decode_ignores_system_messages():
     assert mcu.decode((0xF0, 0x00, 0xF7)) is None
+
+
+def test_channel_pressure_decodes_as_meter():
+    decoded = mcu.decode(mcu.meter_message(7, 0x0C))
+    assert decoded is not None
+    assert decoded.kind == "pressure"
+    assert decoded.value == 0x7C
+
+    meter = mcu.decode_meter(decoded.value)
+    assert (meter.strip, meter.level) == (7, 0x0C)
+    assert mcu.decode_meter(0x3E).level == mcu.METER_OVERLOAD_SET

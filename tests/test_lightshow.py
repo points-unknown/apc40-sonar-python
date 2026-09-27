@@ -16,8 +16,9 @@ def test_light_everything_addresses_every_host_led_and_both_ring_banks():
     cc = [m for m in sent if (m[0] & 0xF0) == 0xB0]
 
     # 8 tracks * (5 pads + 1 clip stop + 4 strip LEDs) = 80
-    # + utility 8 + scenes 5 + master 1 + transport 3 + pan/send 4 = 101
-    assert len(note_on) == 101
+    # + utility 8 notes * 9 Device Control banks = 72
+    # + scenes 5 + master 1 + transport 3 + pan/send 4 = 165
+    assert len(note_on) == 165
     # 8 knobs * (track position + track style + device position + device style) = 32
     assert len(cc) == 32
 

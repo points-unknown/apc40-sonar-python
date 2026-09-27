@@ -8,7 +8,8 @@ The engine owns no ports. It is constructed with:
 
 Input is fed in as raw messages through :meth:`Engine.on_apc_message` and
 :meth:`Engine.on_mcu_message`; the caller's run loop owns the ports and the
-timing. Momentary flashes are serviced by :meth:`Engine.tick`.
+timing. Momentary flashes and level-meter decay are serviced by
+:meth:`Engine.tick`.
 
 Behavior mirrors the validated Lua engine (``reference/apc40-sonar.lua``)
 except where the Python rewrite is explicitly cleaner, chiefly that MCU
@@ -17,10 +18,13 @@ buttons now use real Note On (press) / Note Off (release) pairs.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Sequence
 
 from . import apc40 as apc
 from . import mcu
+
+log = logging.getLogger(__name__)
 
 KNOB_MODES = ("pan", "send_a", "send_b", "send_c")
 
@@ -74,6 +78,19 @@ APC_TRACK_MOMENTARY = {
     apc.NOTE_CLIP_STOP: mcu.NOTE_VPOT_PUSH1,
 }
 
+# Track level meters on the clip grid. Each track's column is a bottom-up bar:
+# row 5 is the lowest segment and row 1 the highest. Entries are
+# (grid row, minimum MCU meter level, color). MCU levels: 3 >= -40 dB,
+# 5 >= -20 dB, 7 >= -10 dB, 9 >= -6 dB, 12 = 0 dB, 13 = over.
+METER_SEGMENTS = (
+    (5, 3, apc.CLIP_GREEN),
+    (4, 5, apc.CLIP_GREEN),
+    (3, 7, apc.CLIP_GREEN),
+    (2, 9, apc.CLIP_YELLOW),
+    (1, 12, apc.CLIP_RED),
+)
+METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
+
 # APC40 global buttons -> MCU notes (channel 0).
 APC_GLOBAL_BUTTONS = {
     apc.NOTE_PLAY: mcu.NOTE_PLAY,
@@ -100,6 +117,9 @@ class Engine:
         flash_frames: int = 6,
         knob_step_limit: int = 3,
         knob_noise_threshold: int = 4,
+        meters: bool = True,
+        meter_decay_frames: int = 15,
+        meter_settle_frames: int = 25,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -113,15 +133,31 @@ class Engine:
         # Steps larger than this are treated as noise/re-reference rather than
         # movement. 0 disables the gate.
         self.knob_noise_threshold = knob_noise_threshold
+        # Level meters own the clip grid (and the Clip Stop LEDs as clip
+        # indicators). A real MCU decays its meters locally at about one
+        # division per 300 ms; Cakewalk relies on that, so decay here too.
+        self.meters = meters
+        self.meter_decay_frames = max(1, meter_decay_frames)
+        # Cakewalk sends every strip's meter on each surface refresh (50-75 ms)
+        # while its meters are on, silence included. Meter traffic within this
+        # many frames therefore means "Cakewalk meters on".
+        self.meter_settle_frames = max(2, meter_settle_frames)
 
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
         self.bank = 0  # informational track-bank offset
         self.show_running = False
+        self.shift = False
 
         self._track_knob_abs: dict[int, int] = {}
         self._device_knob_abs: dict[int, int] = {}
         self._flashes: list[dict] = []
+        self._meter_level = [0] * tracks
+        self._meter_age = [0] * tracks
+        self._meter_clip = [False] * tracks
+        self._frame = 0
+        self._last_meter_frame: int | None = None
+        self._meter_toggle: dict | None = None
 
     # ------------------------------------------------------------------
     # MCU output helpers
@@ -162,17 +198,19 @@ class Engine:
             self._send_mcu(mcu.fader_from_7bit(channel, value))
             return
 
+        # Device Control knobs report on the selected bank's channel (0-8) and
+        # drive the V-pots in device mode.
+        if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
+            if channel < apc.DEVICE_BANKS and not self.mixer:
+                self._relative_knob(self._device_knob_abs, cc - apc.CC_DEVICE_KNOB1 + 1, value)
+            return
+
         if channel != 0:
             return
 
         # Track Control knobs (absolute) -> relative V-pot delta, mix mode only.
         if apc.CC_TRACK_KNOB1 <= cc < apc.CC_TRACK_KNOB1 + self.tracks and self.mixer:
             self._relative_knob(self._track_knob_abs, cc - apc.CC_TRACK_KNOB1 + 1, value)
-            return
-
-        # Device Control knobs drive the V-pots in device mode.
-        if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks and not self.mixer:
-            self._relative_knob(self._device_knob_abs, cc - apc.CC_DEVICE_KNOB1 + 1, value)
 
     def _relative_knob(self, store: dict[int, int], index: int, value7: int) -> None:
         previous = store.get(index)
@@ -209,6 +247,8 @@ class Engine:
         # Per-track controls arrive on channels 0-7.
         if channel < self.tracks and apc.NOTE_RECORD_ARM <= note <= per_track_end:
             if note >= apc.NOTE_CLIP_ROW1:
+                if self.meters:
+                    return  # the grid is a level-meter display
                 # Grid pads are momentary green until grid modes are added.
                 row = note - apc.NOTE_CLIP_ROW1 + 1
                 self.apc.clip_pad(channel, row, apc.CLIP_GREEN if pressed else apc.CLIP_OFF)
@@ -233,9 +273,27 @@ class Engine:
                 return
             return
 
-        # Global controls are always on channel 0, which Track 1 also uses,
-        # so this must run after the per-track branch above.
+        # The Device Control button row (58-65: Clip/Track ... Detail View,
+        # Rec Quantize, Overdub, Metronome) reports on the selected bank's
+        # channel, 0-7 for Tracks 1-8 or 8 for Master. It is still one global
+        # control, so fold the bank channel away.
+        if note in apc.NOTE_UTIL_ROW and channel < apc.DEVICE_BANKS:
+            channel = 0
+
+        # Other global controls are always on channel 0, which Track 1 also
+        # uses, so this must run after the per-track branch above.
         if channel != 0:
+            return
+
+        if note == apc.NOTE_SHIFT:
+            self.shift = pressed
+            self.apc.global_note(apc.NOTE_SHIFT, apc.LED_ON if pressed else apc.LED_OFF, force=True)
+            return
+
+        # Shift layer: mapped combos replace the button's normal action;
+        # unmapped ones fall through unchanged.
+        if self.shift and pressed and note == apc.NOTE_UTIL_DETAIL_VIEW:
+            self.toggle_cakewalk_meters()
             return
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)
@@ -250,6 +308,7 @@ class Engine:
         # Local-only actions below (press edge only).
         if note == apc.NOTE_STOP_ALL_CLIPS:
             self._mcu_click(mcu.NOTE_STOP)
+            self.clear_meter_clips()
             self.flash_stop_all()
         elif note == apc.NOTE_PAN:
             self.set_knob_mode("pan")
@@ -311,6 +370,8 @@ class Engine:
             self.on_mcu_cc(decoded.number, decoded.value)
         elif decoded.kind == "pitch_bend":
             self.on_mcu_pitch(decoded.channel, decoded.value)
+        elif decoded.kind == "pressure":
+            self.on_mcu_meter(decoded.value)
 
     def on_mcu_note(self, note: int, velocity: int) -> None:
         """Render an MCU LED note onto the APC40. Feedback is authoritative."""
@@ -361,6 +422,127 @@ class Engine:
         return
 
     # ------------------------------------------------------------------
+    # Level meters
+    # ------------------------------------------------------------------
+
+    def on_mcu_meter(self, value: int) -> None:
+        """Apply one MCU channel-meter update (Channel Pressure value)."""
+
+        self._last_meter_frame = self._frame
+        meter = mcu.decode_meter(value)
+        track = meter.strip
+        if track >= self.tracks:
+            return
+
+        if meter.level == mcu.METER_OVERLOAD_SET:
+            self._set_meter_clip(track, True)
+            return
+        if meter.level == mcu.METER_OVERLOAD_CLEAR:
+            self._set_meter_clip(track, False)
+            return
+
+        level = min(meter.level, mcu.METER_LEVEL_MAX)
+        self._meter_level[track] = level
+        self._meter_age[track] = 0
+        if level >= mcu.METER_LEVEL_MAX:
+            # Latch clipping locally too: not every host sends the overload flag.
+            self._set_meter_clip(track, True)
+        self._render_meter_bar(track)
+
+    def cakewalk_meters_on(self) -> bool:
+        """True while Cakewalk is streaming meter data (its Meters setting is on)."""
+
+        last = self._last_meter_frame
+        return last is not None and self._frame - last <= self.meter_settle_frames
+
+    def toggle_cakewalk_meters(self) -> None:
+        """Turn Cakewalk's Mackie Control meters on or off with one press.
+
+        Cakewalk cycles Off -> Signal LEDs -> Signal LEDs + Meters -> Off on
+        M2 + Name/Value. Both "on" states stream the same meter data, so turning
+        off may take a second step; :meth:`tick` decides that once the result
+        of the first step is visible in the meter traffic.
+        """
+
+        if self._meter_toggle is not None:
+            return  # a toggle is still settling
+        want_on = not self.cakewalk_meters_on()
+        self._step_cakewalk_meters()
+        self._meter_toggle = {"start": self._frame, "want_on": want_on}
+        self._flash_global(apc.NOTE_UTIL_DETAIL_VIEW)
+        log.info("Cakewalk meters: turning %s", "on" if want_on else "off")
+
+    def _step_cakewalk_meters(self) -> None:
+        """Send one M2 + Name/Value press: Cakewalk's meter-mode step."""
+
+        self._send_mcu(mcu.button_press(mcu.NOTE_M2))
+        self._mcu_click(mcu.NOTE_NAME_VALUE)
+        self._send_mcu(mcu.modifier_release(mcu.NOTE_M2))
+
+    def _settle_meter_toggle(self) -> None:
+        toggle = self._meter_toggle
+        if toggle is None or self._frame - toggle["start"] < self.meter_settle_frames:
+            return
+        self._meter_toggle = None
+
+        # Only traffic from the second half of the window reflects the new
+        # state; earlier messages may predate Cakewalk handling the step.
+        last = self._last_meter_frame
+        flowing = last is not None and last > toggle["start"] + self.meter_settle_frames // 2
+
+        if not toggle["want_on"] and flowing:
+            self._step_cakewalk_meters()  # was Signal LEDs, now LEDs + Meters -> Off
+        elif toggle["want_on"] and not flowing:
+            log.warning(
+                "Cakewalk sent no meters after the toggle; set the Mackie Control "
+                "surface protocol to the default (not Universal/HUI) or enable "
+                "Meters on its property page"
+            )
+
+    def meter_level(self, track: int) -> int:
+        """Current (decayed) meter level 0-13 for *track* (0-based)."""
+
+        return self._meter_level[track]
+
+    def meter_clipped(self, track: int) -> bool:
+        return self._meter_clip[track]
+
+    def clear_meter_clips(self) -> None:
+        """Release every latched clip indicator (Stop All Clips does this)."""
+
+        for track in range(self.tracks):
+            self._set_meter_clip(track, False)
+
+    def _set_meter_clip(self, track: int, clipped: bool) -> None:
+        if self._meter_clip[track] == clipped:
+            return
+        self._meter_clip[track] = clipped
+        self._render_meter_clip(track)
+
+    def _render_meter_bar(self, track: int) -> None:
+        if not self.meters:
+            return
+        level = self._meter_level[track]
+        for row, threshold, color in METER_SEGMENTS:
+            self.apc.clip_pad(track, row, color if level >= threshold else apc.CLIP_OFF)
+
+    def _render_meter_clip(self, track: int, *, force: bool = False) -> None:
+        if not self.meters:
+            return
+        state = METER_CLIP_COLOR if self._meter_clip[track] else apc.CLIP_OFF
+        self.apc.clip_stop(track, state, force=force)
+
+    def _decay_meters(self) -> None:
+        for track in range(self.tracks):
+            if self._meter_level[track] == 0:
+                continue
+            self._meter_age[track] += 1
+            if self._meter_age[track] >= self.meter_decay_frames:
+                self._meter_age[track] = 0
+                self._meter_level[track] -= 1
+                self._render_meter_bar(track)
+
+    # ------------------------------------------------------------------
     # Flashes
     # ------------------------------------------------------------------
 
@@ -384,12 +566,18 @@ class Engine:
             self.apc.global_note(apc.NOTE_STOP, apc.LED_OFF, force=True)
             for track in range(self.tracks):
                 self.apc.clip_stop(track, apc.CLIP_OFF, force=True)
+                if self._meter_clip[track]:
+                    self._render_meter_clip(track, force=True)
 
         self._schedule_flash(frames, off)
 
     def tick(self) -> None:
-        """Advance pending flashes by one frame. Call from the run loop."""
+        """Advance meter decay and pending flashes by one frame. Call from the run loop."""
 
+        self._frame += 1
+        self._settle_meter_toggle()
+        if self.meters:
+            self._decay_meters()
         if not self._flashes:
             return
         remaining: list[dict] = []
@@ -409,6 +597,9 @@ class Engine:
         """Draw the resting mixer surface and select Pan mode."""
 
         self.apc.clear_all()
+        self._meter_level = [0] * self.tracks
+        self._meter_age = [0] * self.tracks
+        self._meter_clip = [False] * self.tracks
         for knob in range(1, self.tracks + 1):
             self.apc.ring_style(apc.device_ring_style_cc(knob), apc.RING_PAN, force=True)
             self.apc.ring_position(apc.device_ring_cc(knob), 63, force=True)

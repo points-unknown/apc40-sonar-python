@@ -222,6 +222,9 @@ def _run(args: argparse.Namespace) -> int:
         mcu_send,
         knob_step_limit=cfg.knob_step_limit,
         knob_noise_threshold=cfg.knob_noise_threshold,
+        meters=cfg.meters,
+        meter_decay_frames=round(cfg.meter_decay_ms / 1000 / POLL_SECONDS),
+        meter_settle_frames=round(0.5 / POLL_SECONDS),
     )
 
     try:

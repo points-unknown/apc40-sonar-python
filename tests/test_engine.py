@@ -149,14 +149,22 @@ def test_transport_numbers_are_translated_not_passed_through():
     ]
 
 
-def test_grid_pad_lights_green_while_held():
-    eng, rec, _ = make_engine()
+def test_grid_pad_lights_green_while_held_when_meters_are_off():
+    eng, rec, _ = make_engine(meters=False)
 
     eng.on_apc_message((0x94, apc.NOTE_CLIP_ROW1 + 2, 127))  # track 5, row 3
     eng.on_apc_message((0x94, apc.NOTE_CLIP_ROW1 + 2, 0))
 
     assert rec.apc_msgs == [(0x94, 55, apc.CLIP_GREEN), (0x84, 55, 0)]
     assert rec.mcu_msgs == []
+
+
+def test_grid_pads_do_not_draw_over_the_meters():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x94, apc.NOTE_CLIP_ROW1 + 2, 127))
+
+    assert rec.apc_msgs == []
 
 
 # ---------------------------------------------------------------------------
@@ -318,3 +326,301 @@ def test_render_baseline_sets_master_scene5_and_pan_mode():
     device_positions = {m[1]: m[2] for m in rec.apc_msgs if m[1] in range(16, 24)}
     assert set(device_positions) == set(range(16, 24))
     assert all(value == 63 for value in device_positions.values())
+
+
+# ---------------------------------------------------------------------------
+# Level meters (MCU channel pressure -> clip grid)
+# ---------------------------------------------------------------------------
+
+
+def grid_state(rec, track):
+    """Final color per grid row (1-5) for *track*, from the emitted messages."""
+
+    state = {row: apc.CLIP_OFF for row in range(1, apc.ROWS + 1)}
+    for status, note, value in rec.apc_msgs:
+        if status & 0x0F != track or not apc.NOTE_CLIP_ROW1 <= note < apc.NOTE_CLIP_ROW1 + apc.ROWS:
+            continue
+        state[note - apc.NOTE_CLIP_ROW1 + 1] = value if status & 0xF0 == 0x90 else apc.CLIP_OFF
+    return state
+
+
+def clip_stop_state(rec, track):
+    state = apc.CLIP_OFF
+    for status, note, value in rec.apc_msgs:
+        if status & 0x0F == track and note == apc.NOTE_CLIP_STOP:
+            state = value if status & 0xF0 == 0x90 else apc.CLIP_OFF
+    return state
+
+
+def test_meter_renders_a_bottom_up_bar_in_the_track_column():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message(mcu.meter_message(2, 9))  # track 3, -6 dB
+
+    assert grid_state(rec, 2) == {
+        5: apc.CLIP_GREEN,
+        4: apc.CLIP_GREEN,
+        3: apc.CLIP_GREEN,
+        2: apc.CLIP_YELLOW,
+        1: apc.CLIP_OFF,
+    }
+    assert grid_state(rec, 1) == {row: apc.CLIP_OFF for row in range(1, 6)}
+    assert rec.mcu_msgs == []
+
+
+def test_meter_decays_one_level_per_decay_period():
+    eng, rec, _ = make_engine(meter_decay_frames=2)
+
+    eng.on_mcu_message(mcu.meter_message(0, 5))
+    assert grid_state(rec, 0)[4] == apc.CLIP_GREEN
+
+    eng.tick()
+    assert eng.meter_level(0) == 5
+    eng.tick()
+    assert eng.meter_level(0) == 4
+    assert grid_state(rec, 0)[4] == apc.CLIP_OFF
+    assert grid_state(rec, 0)[5] == apc.CLIP_GREEN
+
+    for _ in range(8):
+        eng.tick()
+    assert eng.meter_level(0) == 0
+    assert grid_state(rec, 0)[5] == apc.CLIP_OFF
+
+
+def test_new_meter_value_restarts_decay():
+    eng, _, _ = make_engine(meter_decay_frames=2)
+
+    eng.on_mcu_message(mcu.meter_message(0, 5))
+    eng.tick()
+    eng.on_mcu_message(mcu.meter_message(0, 5))
+    eng.tick()
+    assert eng.meter_level(0) == 5
+
+
+def test_meter_steady_state_sends_no_duplicate_led_writes():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message(mcu.meter_message(0, 7))
+    count = len(rec.apc_msgs)
+    eng.on_mcu_message(mcu.meter_message(0, 8))  # same segments lit
+
+    assert len(rec.apc_msgs) == count
+
+
+def test_overload_flag_latches_clip_stop_red_until_cleared():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message(mcu.meter_message(4, mcu.METER_OVERLOAD_SET))
+    assert eng.meter_clipped(4)
+    assert clip_stop_state(rec, 4) == apc.CLIP_RED
+
+    eng.on_mcu_message(mcu.meter_message(4, mcu.METER_OVERLOAD_CLEAR))
+    assert not eng.meter_clipped(4)
+    assert clip_stop_state(rec, 4) == apc.CLIP_OFF
+
+
+def test_over_level_latches_clip_without_host_overload_flag():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message(mcu.meter_message(1, mcu.METER_LEVEL_MAX))
+
+    assert eng.meter_clipped(1)
+    assert clip_stop_state(rec, 1) == apc.CLIP_RED
+    assert grid_state(rec, 1)[1] == apc.CLIP_RED
+
+
+def test_stop_all_clips_releases_clip_latches():
+    eng, rec, _ = make_engine(flash_frames=1)
+    eng.on_mcu_message(mcu.meter_message(1, mcu.METER_OVERLOAD_SET))
+
+    eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+    eng.tick()
+
+    assert not eng.meter_clipped(1)
+    assert clip_stop_state(rec, 1) == apc.CLIP_OFF
+
+
+def test_clip_latch_survives_the_stop_all_flash_when_it_reclips():
+    eng, rec, _ = make_engine(flash_frames=2)
+
+    eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+    eng.on_mcu_message(mcu.meter_message(3, mcu.METER_OVERLOAD_SET))
+    eng.tick()
+    eng.tick()
+
+    assert clip_stop_state(rec, 3) == apc.CLIP_RED
+
+
+def test_meters_off_tracks_state_but_draws_nothing():
+    eng, rec, _ = make_engine(meters=False)
+
+    eng.on_mcu_message(mcu.meter_message(0, mcu.METER_LEVEL_MAX))
+    eng.tick()
+
+    assert eng.meter_level(0) == mcu.METER_LEVEL_MAX
+    assert rec.apc_msgs == []
+
+
+def test_render_baseline_resets_meters():
+    eng, _, _ = make_engine()
+    eng.on_mcu_message(mcu.meter_message(0, 10))
+    eng.on_mcu_message(mcu.meter_message(0, mcu.METER_OVERLOAD_SET))
+
+    eng.render_baseline()
+
+    assert eng.meter_level(0) == 0
+    assert not eng.meter_clipped(0)
+
+
+# ---------------------------------------------------------------------------
+# Shift layer: Shift + Detail View toggles Cakewalk's meters
+# ---------------------------------------------------------------------------
+
+METER_STEP = [
+    mcu.button_press(mcu.NOTE_M2),
+    mcu.button_press(mcu.NOTE_NAME_VALUE),
+    mcu.button_release(mcu.NOTE_NAME_VALUE),
+    mcu.modifier_release(mcu.NOTE_M2),
+]
+
+
+def press_shift_detail(eng):
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_UTIL_DETAIL_VIEW, 127))
+    eng.on_apc_message((0x80, apc.NOTE_UTIL_DETAIL_VIEW, 0))
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+
+
+def run_frames(eng, frames, meter_every=None):
+    """Tick *frames* times, feeding a meter message every *meter_every* frames."""
+
+    for frame in range(frames):
+        if meter_every and frame % meter_every == 0:
+            eng.on_mcu_message(mcu.meter_message(0, 0))
+        eng.tick()
+
+
+def test_modifier_release_is_note_on_velocity_zero():
+    # Cakewalk drops 0x80 for switches, which would leave M2 stuck on.
+    assert mcu.modifier_release(mcu.NOTE_M2) == (0x90, 71, 0)
+
+
+def test_shift_lights_while_held_and_sends_nothing():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    assert eng.shift
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+    assert not eng.shift
+
+    assert rec.apc_msgs == [(0x90, apc.NOTE_SHIFT, 127), (0x80, apc.NOTE_SHIFT, 0)]
+    assert rec.mcu_msgs == []
+
+
+def test_detail_view_without_shift_does_not_toggle_meters():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_UTIL_DETAIL_VIEW, 127))
+
+    assert rec.mcu_msgs == []
+
+
+def test_shift_detail_turns_meters_on_with_one_step():
+    eng, rec, _ = make_engine(meter_settle_frames=10)
+
+    press_shift_detail(eng)
+    assert rec.mcu_msgs == METER_STEP
+    assert (0x90, apc.NOTE_UTIL_DETAIL_VIEW, 127) in rec.apc_msgs  # acknowledged
+
+    run_frames(eng, 12, meter_every=2)  # Cakewalk starts streaming
+    assert rec.mcu_msgs == METER_STEP
+    assert eng.cakewalk_meters_on()
+
+
+def test_shift_detail_turns_off_from_signal_leds_with_a_second_step():
+    eng, rec, _ = make_engine(meter_settle_frames=10)
+    run_frames(eng, 5, meter_every=2)
+    assert eng.cakewalk_meters_on()
+
+    press_shift_detail(eng)
+    run_frames(eng, 12, meter_every=2)  # still streaming: now LEDs + Meters
+
+    assert rec.mcu_msgs == METER_STEP + METER_STEP
+
+
+def test_shift_detail_turns_off_from_both_with_one_step():
+    eng, rec, _ = make_engine(meter_settle_frames=10)
+    run_frames(eng, 5, meter_every=2)
+
+    press_shift_detail(eng)
+    run_frames(eng, 2, meter_every=1)  # stragglers sent before Cakewalk switched
+    run_frames(eng, 10)  # then silence: meters are off
+
+    assert rec.mcu_msgs == METER_STEP
+    assert not eng.cakewalk_meters_on()
+
+
+def test_repeat_press_while_settling_is_ignored():
+    eng, rec, _ = make_engine(meter_settle_frames=10)
+
+    press_shift_detail(eng)
+    press_shift_detail(eng)
+
+    assert rec.mcu_msgs == METER_STEP
+
+
+def test_toggle_on_without_meter_traffic_warns(caplog):
+    eng, rec, _ = make_engine(meter_settle_frames=4)
+
+    press_shift_detail(eng)
+    with caplog.at_level("WARNING", logger="apc40sonar.engine"):
+        run_frames(eng, 5)
+
+    assert rec.mcu_msgs == METER_STEP
+    assert "no meters" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Device Control banks: row 58-65 and knobs report on the bank channel (0-8)
+# ---------------------------------------------------------------------------
+
+
+def test_shift_detail_works_on_the_master_bank_channel():
+    # Captured from hardware with the Master bank selected: Detail View
+    # arrives on channel 8 and releases with Note Off velocity 127.
+    eng, rec, _ = make_engine(meter_settle_frames=10)
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x98, apc.NOTE_UTIL_DETAIL_VIEW, 127))
+    eng.on_apc_message((0x88, apc.NOTE_UTIL_DETAIL_VIEW, 127))
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 127))
+
+    assert rec.mcu_msgs == METER_STEP
+
+
+def test_metronome_works_from_any_bank_channel():
+    eng, rec, _ = make_engine()
+
+    for bank in (0, 3, 8):
+        eng.on_apc_message((0x90 | bank, apc.NOTE_UTIL_METRONOME, 127))
+
+    click = [mcu.button_press(mcu.NOTE_CLICK), mcu.button_release(mcu.NOTE_CLICK)]
+    assert rec.mcu_msgs == click * 3
+
+
+def test_utility_notes_outside_the_banks_are_ignored():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x99, apc.NOTE_UTIL_METRONOME, 127))  # channel 9
+
+    assert rec.mcu_msgs == []
+
+
+def test_device_knobs_follow_the_bank_channel_in_device_mode():
+    eng, rec, _ = make_engine()
+    eng.mixer = False
+
+    eng.on_apc_message((0xB8, apc.CC_DEVICE_KNOB1, 5))  # Master bank, baseline
+    eng.on_apc_message((0xB8, apc.CC_DEVICE_KNOB1, 6))
+
+    assert rec.mcu_msgs == [mcu.vpot_delta(1, 1)]

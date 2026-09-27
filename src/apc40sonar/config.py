@@ -20,6 +20,8 @@ Recognized keys (all optional; defaults match the documented topology):
     APC40_MODE        APC40 operating mode        default: generic
     KNOB_STEP_LIMIT   max V-pot steps per knob event default: 3
     KNOB_NOISE_THRESHOLD  steps above this are ignored  default: 4
+    METERS            track level meters on the grid default: on
+    METER_DECAY_MS    meter fall time per segment     default: 300
 """
 
 from __future__ import annotations
@@ -38,7 +40,12 @@ DEFAULTS = {
     "APC40_MODE": "generic",
     "KNOB_STEP_LIMIT": "3",
     "KNOB_NOISE_THRESHOLD": "4",
+    "METERS": "on",
+    "METER_DECAY_MS": "300",
 }
+
+TRUE_WORDS = frozenset({"1", "on", "true", "yes"})
+FALSE_WORDS = frozenset({"0", "off", "false", "no"})
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,8 @@ class Config:
     apc40_mode: str
     knob_step_limit: int
     knob_noise_threshold: int
+    meters: bool = True
+    meter_decay_ms: int = 300
     env_path: Path | None = None
 
 
@@ -109,6 +118,17 @@ def _as_int(values: dict[str, str], key: str, default: int) -> int:
         return default
 
 
+def _as_bool(values: dict[str, str], key: str, default: bool) -> bool:
+    """Parse an on/off setting, falling back to *default* for unknown words."""
+
+    text = str(values.get(key, "")).strip().lower()
+    if text in TRUE_WORDS:
+        return True
+    if text in FALSE_WORDS:
+        return False
+    return default
+
+
 def load_config(
     env_path: Path | None = None,
     cwd: Path | None = None,
@@ -145,5 +165,7 @@ def load_config(
         apc40_mode=values["APC40_MODE"],
         knob_step_limit=_as_int(values, "KNOB_STEP_LIMIT", 3),
         knob_noise_threshold=_as_int(values, "KNOB_NOISE_THRESHOLD", 4),
+        meters=_as_bool(values, "METERS", True),
+        meter_decay_ms=_as_int(values, "METER_DECAY_MS", 300),
         env_path=resolved,
     )

@@ -125,3 +125,21 @@ def test_knob_noise_threshold_default_and_override(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text("KNOB_NOISE_THRESHOLD=0\n", encoding="utf-8")
     assert config.load_config(env_path=env_file).knob_noise_threshold == 0
+
+
+def test_meters_default_on_and_accept_on_off_words(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    monkeypatch.delenv(config.ENV_VAR, raising=False)
+
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert cfg.meters is True
+    assert cfg.meter_decay_ms == 300
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("METERS=off\nMETER_DECAY_MS=150\n", encoding="utf-8")
+    cfg = config.load_config(env_path=env_file)
+    assert cfg.meters is False
+    assert cfg.meter_decay_ms == 150
+
+    env_file.write_text("METERS=maybe\n", encoding="utf-8")
+    assert config.load_config(env_path=env_file).meters is True

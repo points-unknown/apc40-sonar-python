@@ -43,6 +43,15 @@ NOTE_CHANNEL_LEFT = 48
 NOTE_CHANNEL_RIGHT = 49
 NOTE_FLIP = 50
 NOTE_GLOBAL = 51
+NOTE_NAME_VALUE = 52
+
+# Modifiers M1-M4 (Cakewalk: M1 Ctrl, M2 Option, M3 Snapshot, M4 Shift). Held
+# while another button is pressed. Cakewalk only honors them with its default
+# "Mackie Control" protocol; Universal protocol drops notes 70-73.
+NOTE_M1 = 70
+NOTE_M2 = 71
+NOTE_M3 = 72
+NOTE_M4 = 73
 
 NOTE_SAVE = 80
 NOTE_UNDO = 81
@@ -100,6 +109,11 @@ RING_MODE_CENTERED = 0b11
 
 RING_VALUE_MAX = 11
 
+# Channel meters: Channel Pressure ``0xD0 <sv>``, s = strip 0-7, v = level.
+METER_LEVEL_MAX = 0x0D  # 100 % (> 0 dB); 0x0C is 0 dB
+METER_OVERLOAD_SET = 0x0E
+METER_OVERLOAD_CLEAR = 0x0F
+
 
 # ---------------------------------------------------------------------------
 # Raw message builders
@@ -138,6 +152,17 @@ def button_press(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
 
 def button_release(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
     return note_off(note, 0, channel)
+
+
+def modifier_release(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
+    """Release a held modifier with Note On velocity 0.
+
+    Cakewalk's Mackie Control only dispatches status 0x90 to its button
+    handler, so a real Note Off is silently dropped. That is harmless for
+    ordinary buttons (only the press acts) but would leave a modifier stuck on.
+    """
+
+    return note_on(note, 0, channel)
 
 
 def fader_from_7bit(channel: int, value7: int) -> tuple[int, int, int]:
@@ -203,9 +228,10 @@ class RingValue:
 class DecodedMessage:
     """A parsed incoming MIDI message.
 
-    ``kind`` is one of ``note_on``, ``note_off``, ``cc`` or ``pitch_bend``.
-    ``number`` is the note or CC number (0 for pitch bend). ``value`` is the
-    velocity, CC value, or 14-bit pitch value.
+    ``kind`` is one of ``note_on``, ``note_off``, ``cc``, ``pitch_bend`` or
+    ``pressure`` (channel pressure). ``number`` is the note or CC number (0 for
+    pitch bend and pressure). ``value`` is the velocity, CC value, 14-bit pitch
+    value, or pressure value.
     """
 
     kind: str
@@ -252,6 +278,9 @@ def decode(message: Sequence[int]) -> DecodedMessage | None:
         msb = (raw[2] & 0x7F) if len(raw) > 2 else 0
         return DecodedMessage("pitch_bend", channel, 0, lsb | (msb << 7), raw)
 
+    if kind == 0xD0:
+        return DecodedMessage("pressure", channel, 0, raw[1] & 0x7F, raw)
+
     return None
 
 
@@ -260,6 +289,27 @@ def decode_ring(value: int) -> RingValue:
 
     v = value & 0x7F
     return RingValue(mode=(v >> 4) & 0x03, value=v & 0x0F, led=bool((v >> 6) & 0x01))
+
+
+@dataclass(frozen=True)
+class MeterValue:
+    """Decoded channel-meter pressure byte."""
+
+    strip: int  # 0-7
+    level: int  # 0-13, or METER_OVERLOAD_SET / METER_OVERLOAD_CLEAR
+
+
+def decode_meter(value: int) -> MeterValue:
+    """Split a meter Channel Pressure value into strip (high nibble) and level."""
+
+    v = value & 0x7F
+    return MeterValue(strip=(v >> 4) & 0x07, level=v & 0x0F)
+
+
+def meter_message(strip: int, level: int) -> tuple[int, int]:
+    """Build a meter Channel Pressure message (as Cakewalk sends it)."""
+
+    return (0xD0 | CHANNEL, ((strip & 0x07) << 4) | (level & 0x0F))
 
 
 def led_state(velocity: int) -> str:
