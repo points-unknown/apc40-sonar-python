@@ -5,6 +5,8 @@ Working backlog for apc40sonar. `README.md` is the big-picture quickstart;
 
 ## Where we are
 
+New session? Start with [`plans/next-session-handoff.md`](plans/next-session-handoff.md).
+
 Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-sonar-python-plan.md):
 
 - Steps 1-7 are done: scaffold, `midi_io`, `apc40`/`mcu`, `engine` mixer core, feedback

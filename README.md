@@ -128,5 +128,6 @@ More detail in [`docs/GENERAL.md`](docs/GENERAL.md).
 - [`docs/mcu-mapping.md`](docs/mcu-mapping.md) - Mackie Control mapping
 - [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md) - MCU vs keystroke bridging
 - [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) - step-by-step install, loopMIDI, and Cakewalk setup
+- [`plans/next-session-handoff.md`](plans/next-session-handoff.md) - current state and next steps (start here)
 - [`plans/`](plans/) - implementation plan, handoff, C4 surface plan, HUD concept
 - [`reference/`](reference/) - the retired MIDIMonster/Lua prototype (historical) and frozen baseline lightshow

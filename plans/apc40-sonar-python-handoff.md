@@ -1,5 +1,8 @@
 # APC40 to Cakewalk by BandLab: Python Project Handoff
 
+> **Historical** (the MIDIMonster -> Python migration). For the current state and next
+> steps, start with [`next-session-handoff.md`](next-session-handoff.md).
+
 This document is the starting point for a **fresh session** building the Python
 implementation. It captures the goal, the decisions, the validated protocol knowledge,
 the lessons learned from the MIDIMonster prototype, and the first tasks.
