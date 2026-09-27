@@ -1,0 +1,139 @@
+# APC40 Quick Reference
+
+What every APC40 control does, in every mode. This is the user-facing map. For
+the MIDI detail behind each action, see [`GENERAL.md`](GENERAL.md) and
+[`mcu-mapping.md`](mcu-mapping.md).
+
+> **Keep this current.** Any change to what a control does, and any new mode or Shift
+> combo, updates this file in the same change. `src/apc40sonar/engine.py` is the source
+> of truth. If the two disagree, this file is wrong.
+
+**Status:** **Live** = works now. *Provisional* = placeholder behavior, will change.
+`-` = does nothing yet. The **Planned** column comes from [`TODO.md`](../TODO.md) and is
+not built.
+
+Assumes `APC40_MODE=generic` (the default and the only mode tested).
+
+## Modes at a glance
+
+The APC40 has several independent mode layers. Each one changes a different part of the
+panel.
+
+| Mode layer | Options | Switch with | Shown by | Default | Affects |
+|---|---|---|---|---|---|
+| **Knob mode** | Pan, Send A, Send B, Send C | Pan / Send A / Send B / Send C buttons | Lit mode button; ring style (pan vs. fill) | Pan | Track Control knobs + rings |
+| **Grid mode** | Meters, Pads | `METERS=on/off` in `.env` (restart) | Grid shows meters or stays dark | Meters | Clip grid, Clip Stop LEDs |
+| **Shift layer** | Held / released | Hold **Shift** | Shift LED lit while held | Released | Buttons that have a Shift combo |
+| **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
+| *Knob target* (planned) | Mix, Device | Not built | - | Mix | Which knob bank drives the MCU V-pots |
+| *Grid modes* (planned) | Drum pads, clip launch, bank overview | Not built | - | - | Clip grid |
+
+## Track strips (x8, one per Cakewalk track in the current bank)
+
+| Control | Action | LED / display | Status | Planned |
+|---|---|---|---|---|
+| **Fader** | Track volume | None (faders are not motorized) | **Live** | - |
+| **Track Selection** | Select the track | Lit on the selected track, from Cakewalk | **Live** | - |
+| **Activator** | Mute on/off (lit = **muted**, from Cakewalk) | From Cakewalk | **Live** | - |
+| **Solo** | Solo on/off | From Cakewalk | **Live** | - |
+| **Record Arm** | Arm on/off | From Cakewalk | **Live** (track 1 cannot arm: Cakewalk ignores it) | - |
+| **Clip Stop** | MCU V-pot push for this strip | Meters mode: red = clip latched. Pads mode: off | **Live** | - |
+
+The Activator LED follows Cakewalk's mute state, so lit means muted. This is the
+opposite of Ableton, where lit means active.
+
+## Clip grid (8 x 5) and Scene column
+
+| Control | Meters mode (default) | Pads mode (`METERS=off`) | Planned |
+|---|---|---|---|
+| **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Drum-pad mode, clip-launch mode, bank overview |
+| **Scene 1-5** | *Provisional:* lights its LED, no action (Scene 5 lit at startup) | Same | MCU F1-F5, Cakewalk screensets, or grid-mode select |
+| **Stop All Clips** | Transport Stop + clears all clip latches + flashes Stop and Clip Stop LEDs | Stop + flash | - |
+
+Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.
+
+## Knobs
+
+### Track Control knobs (top right, x8)
+
+| Knob mode | Knobs control | Rings show | Status |
+|---|---|---|---|
+| **Pan** | Track pan | Pan style, centered at startup; then Cakewalk's value | **Live** |
+| **Send A** | Track send level | Fill style, Cakewalk's value | **Live** |
+| **Send B** | Same as Send A: Cakewalk picks which send | Fill style | *Provisional* (B = A) |
+| **Send C** | Same as Send A: Cakewalk picks which send | Fill style | *Provisional* (C = A) |
+
+Planned: Send A/B/C each address their own send.
+
+### Device Control knobs (bottom right, x8)
+
+| Knob target | Knobs control | Rings show | Status |
+|---|---|---|---|
+| **Mix** (current; no button switches it yet) | Nothing | Centered, pan style (startup) | `-` |
+| *Device* (planned) | Focused plug-in / EQ / instrument parameters | Cakewalk's value and ring style | Planned |
+| *C4 surface* (planned) | Plug-in parameters on a second surface, with the Track Control knobs still on pan/sends | C4 ring feedback | Planned |
+
+### Other continuous controls
+
+| Control | Action | Status | Planned |
+|---|---|---|---|
+| **Master fader** | - | `-` | Master volume (MCU fader 9) |
+| **Crossfader** | - | `-` | Configurable CC, or leave unused |
+| **Cue Level** | - | `-` | MCU jog wheel (scrub/shuttle) |
+| **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |
+
+## Knob mode buttons
+
+| Button | Action | LED | Status |
+|---|---|---|---|
+| **Pan** | Knob mode = Pan (MCU Assign Pan) | Only the active mode button is lit | **Live** |
+| **Send A / B / C** | Knob mode = Send (MCU Assign Send) | Only the active mode button is lit | **Live** (B/C same as A) |
+
+## Utility row (under the Device Control knobs)
+
+These buttons work, and their LEDs show, whichever track (or Master) is selected.
+
+| Button | Action | Shift + button | LED | Status | Planned |
+|---|---|---|---|---|---|
+| **Clip/Track** | - | - | - | `-` | Track/clip context for the Track Control knobs |
+| **Device On/Off** | - | - | - | `-` | Focused plug-in bypass, LED shows state |
+| **Left arrow** | - | - | - | `-` | Device knob page / parameter bank |
+| **Right arrow** | - | - | - | `-` | Device knob page / parameter bank |
+| **Detail View** | - | **Toggle Cakewalk meters** on/off | Flashes on toggle | **Live** (Shift only) | Local view toggle or keystroke |
+| **Rec Quantize** | - | - | *Provisional:* shows Cakewalk **Cycle** (loop) state | `-` | Keystroke `Ctrl+Alt+R` with flash |
+| **MIDI Overdub** | - | - | - | `-` | Keystroke `Ctrl+Alt+O`, LED from feedback |
+| **Metronome** | Click on/off | - | From Cakewalk | **Live** | - |
+
+## Transport and navigation
+
+| Button | Action | LED | Status | Planned |
+|---|---|---|---|---|
+| **Play** | Play | From Cakewalk | **Live** | - |
+| **Stop** | Stop | From Cakewalk | **Live** | - |
+| **Record** | Record | From Cakewalk | **Live** | - |
+| **Bank Select Up / Down / Left / Right** | MCU cursor Up / Down / Left / Right | - | **Live** | Bank +/- and Channel +/- (move the 8-track window); cursor possibly on Shift |
+| **Shift** | Modifier (hold) | Lit while held | **Live** | More Shift combos (see below) |
+| **Tap Tempo** | - (LED flash only) | Flash | *Provisional* | Tap tempo keystroke (needs keystroke bridge) |
+| **Nudge + / -** | - | - | `-` | MCU Rewind/Forward or Nudge |
+| **Master** (Track Selection) | - (LED stays lit) | Lit | *Provisional* | Select master bus or MCU Flip |
+
+## Shift combos
+
+Hold **Shift** and press the second button. Buttons without a combo do their normal
+action while Shift is held.
+
+| Combo | Action | Status |
+|---|---|---|
+| **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
+
+Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
+Shift + Scene = record-enable scene, other alternate strip actions.
+
+## Startup state
+
+After the lightshow the panel rests in:
+
+- Knob mode **Pan**, Pan button lit, Track Control rings centered
+- Device Control rings centered (pan style)
+- **Master** and **Scene 5** lit
+- Grid dark until Cakewalk sends meters or LED state

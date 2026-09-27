@@ -1,13 +1,13 @@
 # Cakewalk by BandLab Command Matrix
 
 Classifies each desired integration function by the **bridge** used to trigger it, and
-defines the LED/feedback behavior. This shapes the Lua encoder/decoder.
+defines the LED/feedback behavior. This shapes the engine's encoder/decoder.
 
 ## Bridge Selection Rules
 
 1. **MCU** when Cakewalk exposes a normal control-surface parameter *and* returns state.
 2. **Keystroke (`wininput`)** when the function is a global command with no MCU message.
-3. **Local (Lua only)** when the action is handled entirely inside MIDIMonster (LED
+3. **Local (engine only)** when the action is handled entirely inside apc40sonar (LED
    conventions, mode switches, grid rendering, flashes).
 
 Important: **we do not rely on Cakewalk's default keyboard shortcuts.** In
@@ -92,7 +92,7 @@ documented, and independent of Cakewalk version defaults.
 | Focused plug-in bypass | Keystroke | `Ctrl+Alt+B` | Device On/Off LED (note 59) |
 
 > V-pot multiplexing: the same 8 MCU V-pots serve **Mix mode** (Track Control knobs) and
-> **Device mode** (Device Control knobs). Mode is a local Lua state switched by the user.
+> **Device mode** (Device Control knobs). Mode is local engine state switched by the user.
 
 ## Instrument / Drum
 

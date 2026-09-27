@@ -1,20 +1,20 @@
 # APC40 (Original) Output / LED Reference
 
 Consolidated reference for **host-to-APC40** output (LEDs, colors, rings). This is the
-authority the Lua renderer will use. Items marked **VERIFY** must be confirmed on hardware.
+authority the renderer in `src/apc40sonar/apc40.py` follows. Items marked **VERIFY** must be confirmed on hardware.
 
 Source: Akai *Communications Protocol for Akai APC40 Controller* rev 1, plus behavior
-validated by the startup lightshow fixture in [`baseline/`](../baseline/README.md).
+validated by the startup lightshow fixture in [`reference/baseline/`](../reference/baseline/README.md).
 
 > Do not confuse the original APC40 with the **APC40 mkII** or **APC Mini**. Their
 > channels, colors, and capabilities differ.
 
 ## MIDI Channel Convention
 
-The Akai protocol uses **zero-based** channels. MIDIMonster uses the same convention
-(`ch0`). MIDI-OX displays one-based.
+The Akai protocol uses **zero-based** channels, as do python-rtmidi and `--monitor`
+(`ch0`). Some MIDI tools display them one-based.
 
-| Protocol / MIDIMonster | MIDI-OX display | APC40 meaning |
+| Protocol / apc40sonar | One-based display | APC40 meaning |
 |---:|---:|---|
 | `ch0` | 1 | Track 1 |
 | `ch1` | 2 | Track 2 |
@@ -34,14 +34,13 @@ Global controls (Scene, Master, transport, utility row) are emitted on `ch0`.
   matter.
 - **Clip grid and Clip Stop**: special small velocity values select color/blink state
   (table below).
-- MIDIMonster/Lua translation: `lua_output_value = required_midi_value / 127`.
 
-Example:
+Example (raw bytes, as `--monitor` prints them; channel 0 = Track 1):
 
-```lua
-output("arm_t1",   1/127)  -- Record Arm LED on (value 1)
-output("arm_t1",   0)      -- Record Arm LED off
-output("pad_t1_r1",3/127)  -- Track 1 row 1 pad red
+```text
+[144, 48, 1]   Note On  note 48 value 1  -> Track 1 Record Arm LED on
+[128, 48, 0]   Note Off note 48          -> Track 1 Record Arm LED off
+[144, 53, 3]   Note On  note 53 value 3  -> Track 1 row 1 pad red
 ```
 
 ## Clip Grid and Clip Stop Color / State Values
@@ -174,7 +173,7 @@ The integration is bidirectional; these are the APC40-to-host messages the encod
 
 ## Hardware Validation Checklist
 
-Run with MIDI-OX monitoring or MIDIMonster's diagnostic port.
+Run `uv run apc40sonar --monitor` to watch the traffic.
 
 - [ ] Record Arm LED lights and clears (note 48, any nonzero / off)
 - [ ] Solo, Activator, Select LEDs light and clear (notes 49-51)

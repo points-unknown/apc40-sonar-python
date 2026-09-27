@@ -1,6 +1,6 @@
 # MCU Protocol Reference and APC40 Integration Map
 
-Authoritative reference for the Mackie Control Universal (MCU) messages the Lua layer
+Authoritative reference for the Mackie Control Universal (MCU) messages the engine
 emits and decodes, plus the concrete APC40-to-MCU and MCU-to-APC40 mapping.
 
 Primary source: the reverse-engineered *Mackie Control Protocol* document from the
@@ -29,7 +29,7 @@ The Note On **velocity** encodes state:
 | Blink | 1 | any odd value except 0x7F |
 | Solid | 127 (0x7F) | |
 
-When emulating the surface, MIDIMonster should send the same bang (On then Off) for
+When emulating the surface, the engine should send the same bang (On then Off) for
 button presses and for LED state changes.
 
 ### Message types used

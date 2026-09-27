@@ -11,8 +11,9 @@ with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and ring
 ## Quick start
 
 Requirements: **Python 3.14** and **uv**; a physical `Akai APC40`; and two loopMIDI cables
-(`APC40-IN`, `APC40-OUT`). See [`docs/GENERAL.md`](docs/GENERAL.md) and
-[`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) for the setup.
+(`APC40-IN`, `APC40-OUT`). **New here? Follow
+[`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md)** for the
+step-by-step loopMIDI and Cakewalk setup.
 
 ```bat
 uv sync
@@ -63,7 +64,7 @@ uv run pytest
 
 | Symptom | Fix |
 |---|---|
-| `cannot open APC40 port` | Close anything else using it (MIDI-OX, Bome, Cakewalk, Ableton) |
+| `cannot open APC40 port` | Close anything else using it (MIDI-OX, Cakewalk, Ableton), or uncheck `Akai APC40` in Cakewalk's MIDI Devices |
 | `APC40-IN` / `APC40-OUT` missing | Start loopMIDI and re-add the ports; reboot after a fresh install |
 | A button toggles twice per press | Remove any direct APC40 device/surface added in Cakewalk |
 | LEDs flicker continuously | Ensure only this app routes back to the APC40 |
@@ -81,11 +82,12 @@ More detail in [`docs/GENERAL.md`](docs/GENERAL.md).
 
 ## Reference
 
+- [`docs/quick-reference.md`](docs/quick-reference.md) - what every APC40 button does, per mode
 - [`docs/GENERAL.md`](docs/GENERAL.md) - architecture, configuration, behavior, internals
 - [`TODO.md`](TODO.md) - remaining work and enhancement ideas
 - [`docs/apc40-output-reference.md`](docs/apc40-output-reference.md) - APC40 LED/ring/color map
 - [`docs/mcu-mapping.md`](docs/mcu-mapping.md) - Mackie Control mapping
 - [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md) - MCU vs keystroke bridging
-- [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) - port topology and Cakewalk setup
+- [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) - step-by-step install, loopMIDI, and Cakewalk setup
 - [`plans/`](plans/) - implementation plan and handoff
-- [`reference/`](reference/) - validated Lua engine and frozen baseline lightshow
+- [`reference/`](reference/) - the retired MIDIMonster/Lua prototype (historical) and frozen baseline lightshow
