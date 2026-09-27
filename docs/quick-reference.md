@@ -26,7 +26,7 @@ panel.
 | **Shift layer** | Held / released | Hold **Shift** | Shift LED lit while held | Released | Buttons that have a Shift combo |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
 | *Knob target* (planned) | Mix, Device | Not built | - | Mix | Which knob bank drives the MCU V-pots |
-| *Grid modes* (planned) | Drum pads, clip launch, bank overview | Not built | - | - | Clip grid |
+| *Grid modes* (planned) | Meters, step sequencer, drum pads, clip launch | Scene 1-5 (Scene 1 = meters, Scene 2 = sequencer) | Lit Scene LED | Meters | Clip grid, Clip Stop row, Bank Select arrows (sequencer) |
 
 ## Track strips (x8, one per Cakewalk track in the current bank)
 
@@ -46,8 +46,8 @@ opposite of Ableton, where lit means active.
 
 | Control | Meters mode (default) | Pads mode (`METERS=off`) | Planned |
 |---|---|---|---|
-| **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Drum-pad mode, clip-launch mode, bank overview |
-| **Scene 1-5** | *Provisional:* lights its LED, no action (Scene 5 lit at startup) | Same | MCU F1-F5, Cakewalk screensets, or grid-mode select |
+| **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Step sequencer (5 lanes x 8 steps, tap cycles velocity color), drum pads, clip launch |
+| **Scene 1-5** | *Provisional:* lights its LED, no action (Scene 5 lit at startup) | Same | Grid-mode select (Scene 1 meters, Scene 2 step sequencer, 3-5 reserved) |
 | **Stop All Clips** | Transport Stop + clears all clip latches + flashes Stop and Clip Stop LEDs | Stop + flash | - |
 
 Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.

@@ -27,8 +27,77 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
 
 ### Scene buttons (notes 82-86)
 
-- [ ] Map scenes to MCU F1-F5, or to Cakewalk screensets, or to local grid modes
-- [ ] Reflect the active scene/screenset on the Scene LEDs
+- [ ] Scenes select the **grid mode**: Scene 1 = meters (or pads with `METERS=off`),
+      Scene 2 = step sequencer, Scenes 3-5 reserved for future grid modes (drum pads,
+      clip launch). The lit Scene LED shows the active grid mode
+- [ ] Screensets / MCU F1-F5 move elsewhere (e.g. Shift + Scene) if still wanted
+
+### Step sequencer grid mode (Scene 2)
+
+The clip grid becomes a pattern editor that plays drum/note lanes in sync with Cakewalk.
+
+Layout:
+
+```text
+            step 1 ... step 8        (current page of 8 steps)
+grid row 1  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 1   ^
+grid row 2  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 2   |  Bank Select Up/Down:
+grid row 3  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 3   |  lanes 1-5, 6-10, ...
+grid row 4  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 4   |
+grid row 5  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 5   v
+Clip Stop   [ ][ ][*][ ][ ][ ][ ][ ]  playhead (lit = step now playing)
+            <-- Bank Select Left/Right: steps 1-8, 9-16, 17-24, ... -->
+```
+
+Decisions (agreed):
+
+- **Lanes:** the 5 grid rows are 5 note lanes. Bank Select **Up/Down** pages the rows
+  (lanes 1-5, 6-10, ...). Lane count is configurable (default 10 = 2 row pages).
+- **Steps:** the 8 columns are 8 steps. Bank Select **Left/Right** pages the steps
+  (1-8, 9-16, 17-24, ...). Pattern length is configurable (default 16 = 2 pages).
+- **Playhead:** the **Clip Stop row** lights the step currently playing (green, the only
+  color that row has). Dark when the playing step is on another step page.
+  Track Selection keeps its normal behavior.
+- **Velocity:** the original APC40 pads are **not** pressure sensitive (they always send
+  `7F`), so velocity is set two ways:
+  - Tap cycles a step: off -> **green** (normal) -> **amber** (accent) -> **red** (soft)
+    -> off. Default velocities: normal 100, accent 127, soft 60 (configurable).
+  - **Hold a step + turn a Device Control knob** for an exact velocity 1-127; the ring
+    shows the value, and the pad color follows the nearest level band.
+- **Clock:** follow Cakewalk. Cakewalk sends MIDI Clock + Song Position Pointer; the
+  sequencer runs only while Cakewalk plays, locked to its tempo and bar position, so
+  recorded notes land on the grid. Default resolution 1/16 (6 clock ticks per step).
+- **Note output:** a dedicated loopMIDI cable into a Cakewalk MIDI/instrument track (arm
+  it to record the pattern). Never on the Mackie Control ports.
+- **Unchanged in this mode:** faders, Record Arm / Solo / Activator / Track Selection,
+  Track Control knobs, transport. Meters are not drawn while the sequencer owns the grid.
+
+Tasks:
+
+- [ ] Research: where Cakewalk enables MIDI Clock / SPP output to a port, and confirm it
+      also sends Start / Stop / Continue with the transport
+- [ ] Ports: two new loopMIDI cables, e.g. `APC40-SEQ` (app -> Cakewalk notes) and
+      `APC40-CLOCK` (Cakewalk -> app clock), with `SEQ_OUT_PORT` / `CLOCK_IN_PORT` in
+      `.env`, opened best-effort. Separate cables so neither side reads its own traffic
+- [ ] `sequencer` module (hardware-free, unit-tested): pattern model (lanes x steps x
+      velocity), clock tick -> step advance, SPP positioning, Start/Stop/Continue, Note
+      On/Off scheduling (fixed gate, e.g. half a step), all notes off on Stop
+- [ ] Lane config: note number + MIDI channel per lane in `.env` or a YAML file; default
+      GM drums on channel 10 (kick 36, snare 38, closed hat 42, open hat 46, clap 39, ...)
+- [ ] Grid rendering: pad colors from the current lane page + step page; playhead on
+      Clip Stop; redraw on page change and when leaving/re-entering the mode
+- [ ] Input: pad press cycles the step; hold pad + Device Control knob sets velocity
+      (depends on handling Mode 0 Device Control banking - see Device / plug-in mode);
+      Bank Select arrows page steps/lanes instead of sending MCU cursor keys
+- [ ] Page indicator: on a page change, briefly show the page number (e.g. light Clip Stop
+      LED *n* for page *n*) before returning to the playhead
+- [ ] Clip Stop presses in this mode: no MCU V-pot push (the row is a display); decide
+      later whether they get a function
+- [ ] Pattern persistence: save/load patterns to a file so they survive a restart
+- [ ] Docs: sequencer section in `docs/quick-reference.md`, cables and Cakewalk clock
+      setup in `docs/setup-loopmidi-and-cakewalk.md`, internals in `docs/GENERAL.md`
+- [ ] Later ideas: clear pattern (e.g. Shift + Stop All Clips), per-lane mute, copy page,
+      swing, per-lane step length, internal clock for jamming without the transport
 
 ### Device / plug-in mode
 
@@ -51,7 +120,8 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
 - [ ] Considering the crossfader (APC CC 15): map to a configurable CC or leave unused
 - [ ] Rewind/Forward, Cycle, Punch/Drop, Nudge, Zoom, Scrub, Markers
 - [ ] Bank Select arrows (94-97) currently send MCU cursor Up/Down/Left/Right; decide
-      cursor vs. bank/channel (e.g. plain = bank, Shift = cursor)
+      cursor vs. bank/channel (e.g. plain = bank, Shift = cursor). In step-sequencer mode
+      they page steps (Left/Right) and lanes (Up/Down) instead
 - [ ] Nudge + / - (100/101): unassigned; candidates are MCU Rewind/Forward or Nudge
 - [ ] Tap Tempo (99): only flashes its LED; needs the keystroke bridge for real tap tempo
 - [ ] Cue Level knob (CC 47, relative): unassigned; candidate is the MCU jog wheel (CC 60)
@@ -120,8 +190,9 @@ Ordered roughly by value-to-effort:
 - [ ] **Screensets on Scene buttons** - one-press workspace switching; remember the last one.
 - [ ] **Transport extras** - Cycle/loop toggle, punch, marker jump, zoom, scrub mapped to
       free buttons with feedback where MCU provides it.
-- [ ] **Grid modes** - drum-pad mode (send notes to an instrument track) and clip-launch
-      mode, matching the `docs/cakewalk-command-matrix.md` specialization.
+- [ ] **Grid modes** - step sequencer (planned in detail under Step 8), drum-pad mode (send
+      notes to an instrument track) and clip-launch mode, matching the
+      `docs/cakewalk-command-matrix.md` specialization. Selected with the Scene buttons.
 - [ ] **Metronome and Overdub LEDs** - faithful state from MCU feedback (partly done for
       Metronome; add Overdub).
 - [ ] **Template + setup doc** - a ready-made Cakewalk project template (tracks, keymap,
