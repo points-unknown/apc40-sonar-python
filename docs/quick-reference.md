@@ -135,6 +135,28 @@ action while Shift is held.
 Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
 Shift + Scene = record-enable scene, other alternate strip actions.
 
+## On-screen HUD
+
+Optional window that shows what the panel is doing. Start with
+`uv run apc40sonar --hud`, or set `HUD=on` in `.env`. Settings (`HUD_POSITION`,
+`HUD_LAYOUT`, `HUD_OPACITY`, ...) are listed in [`GENERAL.md`](GENERAL.md#configuration-reference).
+
+| Area | Shows |
+|---|---|
+| Mode (large, colored) | `PAN` (amber), `SEND A (1)` (cyan), `SEND B (2)` (violet), `SEND C (3)` (green) |
+| `Trk 9-16` | Tracks on the 8 strips. `Trk ?` until the first Track Selection press; `Trk ~17-24` = estimated after Bank/Channel moves, confirmed by the next select |
+| `Sel 12 Vocals` | Selected track number and name |
+| Transport | `STOP` / `PLAY` / `REC`, from Cakewalk |
+| Time | Bars.beats.ticks (or SMPTE), from Cakewalk |
+| `Assign SE` | Cakewalk's assignment display (`PN` = pan, `SE` = sends) |
+| Badges | **LOOP**, **ZOOM** (crossfader zoom mode), **METERS** (Cakewalk meters on), **SHIFT** (held); dim = off |
+| Toast (right) | ~1 s message for each action: `Send B`, `Bank >`, `Channel <`, `Go to start`, `Stop all`, `Zoom: fit project`, `Cakewalk meters on`, `Metronome (rec) toggled`, and Cakewalk's `Track 12: "Vocals"` |
+| Status line | `no link to apc40sonar` (app not running), `Cakewalk idle` (no feedback lately), red `Strip layout!` (Cakewalk flipped the knobs to one track) |
+| Strips (expanded layout) | Per strip: name (a knob's value briefly replaces it, in white), param label or value, R/S/M dots, level meter with clip mark; selected strip highlighted |
+
+Mouse: drag to move; right-click for Compact / Expanded, Opacity, Quit HUD. Clicking it
+never takes keyboard focus from Cakewalk.
+
 ## Startup state
 
 After the lightshow the panel rests in:

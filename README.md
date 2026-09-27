@@ -35,6 +35,28 @@ uv run apc40sonar
 
 `run-apc40-sonar.cmd <args>` is a launcher that finds `uv` automatically. Stop with Ctrl+C.
 
+### On-screen HUD (optional)
+
+The APC40 has no display, so the app can show a small always-on-top window with the
+knob mode, track window, selected track, transport, time, and a short message for each
+action. Start the app with `--hud`:
+
+```bat
+uv run apc40sonar --hud
+```
+
+Or set `HUD=on` in `.env` to always show it (`--no-hud` turns it off for one run).
+`HUD_LAYOUT=expanded` adds the 8 strips with track names, values and meters. Drag the
+window to move it; right-click for layout, opacity and Quit. The HUD runs as its own
+process and closes with the app. To attach one to an app that is already running:
+
+```bat
+uv run python -m apc40sonar.hud
+```
+
+What it shows and all `HUD_*` settings: [`docs/quick-reference.md`](docs/quick-reference.md#on-screen-hud)
+and [`docs/GENERAL.md`](docs/GENERAL.md#on-screen-hud).
+
 ## Configuration
 
 Port names and options live in `.env` at the repository root, copied from
