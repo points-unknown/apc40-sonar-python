@@ -137,8 +137,8 @@ Shift + Scene = record-enable scene, other alternate strip actions.
 
 ## On-screen HUD
 
-Optional window that shows what the panel is doing. Start with
-`uv run apc40sonar --hud`, or set `HUD=on` in `.env`. Settings (`HUD_POSITION`,
+Window that shows what the panel is doing. Opens automatically with the app; turn it
+off with `--no-hud` or `HUD=off` in `.env`. Settings (`HUD_POSITION`,
 `HUD_LAYOUT`, `HUD_OPACITY`, ...) are listed in [`GENERAL.md`](GENERAL.md#configuration-reference).
 
 | Area | Shows |

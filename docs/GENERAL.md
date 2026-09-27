@@ -74,7 +74,7 @@ Port names and options live in `.env` at the repository root (copy
 | `METER_DECAY_MS` | `300` | Meter fall time per level, like a real MCU |
 | `ZOOM_STEP_UNITS` | `6` | Crossfader travel (0-127 scale) per zoom step; lower = faster zoom |
 | `ZOOM_IDLE_MS` | `300` | Leave Cakewalk's zoom mode this long after the crossfader stops |
-| `HUD` | `off` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
+| `HUD` | `on` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
 | `HUD_PORT` | `47040` | UDP port on 127.0.0.1 between the app and the HUD |
 | `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-left` / `bottom-right`, or `x,y` on the monitor |
 | `HUD_MONITOR` | `0` | Monitor index for placement (0 = primary) |
@@ -98,7 +98,7 @@ Process-environment values override the file, so a one-off run can use
 | `uv run apc40sonar` | Full engine: lightshow, then the APC40 <-> Cakewalk event loop |
 | `uv run apc40sonar --no-show` | Skip the lightshow |
 | `uv run apc40sonar --monitor` | Also print incoming and outgoing MIDI (`apc:`/`mcu:` in, `apc>`/`mcu>` out) |
-| `uv run apc40sonar --hud` | Also show the on-screen HUD (`--no-hud` overrides `HUD=on`) |
+| `uv run apc40sonar --no-hud` | Run without the on-screen HUD (`--hud` overrides `HUD=off`) |
 | `uv run python -m apc40sonar.hud` | Start a HUD by hand and attach it to a running app |
 | `uv run apc40sonar --env PATH` | Use an explicit `.env` file |
 
@@ -324,8 +324,9 @@ used; it is acknowledged by flashing the Stop LED and the eight Clip Stop LEDs.
 
 ### On-screen HUD
 
-The APC40 has no display, so an optional always-on-top window shows what the
-controller is doing and what Cakewalk reports. Enable it with `HUD=on` or `--hud`.
+The APC40 has no display, so an always-on-top window shows what the controller is
+doing and what Cakewalk reports. It is on by default; turn it off with `HUD=off` or
+`--no-hud`.
 Design notes: [`plans/hud-concept.md`](../plans/hud-concept.md).
 
 - **Compact:** knob mode (`PAN` / `SEND A (1)` ...), strip window (`Trk 9-16`),

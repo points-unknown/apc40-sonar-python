@@ -9,8 +9,8 @@ Modes:
                                      APC40 <-> Cakewalk event loop)
     uv run apc40sonar --no-show      as above but skip the lightshow
     uv run apc40sonar --monitor      also print incoming MIDI messages
-    uv run apc40sonar --hud          also show the on-screen HUD (``HUD`` in
-                                     ``.env``; ``--no-hud`` turns it off)
+    uv run apc40sonar --no-hud       run without the on-screen HUD (``HUD`` in
+                                     ``.env``, default on; ``--hud`` forces it)
 
 The physical APC40 is opened read+write and put into its configured operating
 mode (``APC40_MODE`` in ``.env``) before any other message. The two loopMIDI
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--hud",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Show the on-screen HUD (default: HUD in .env, off).",
+        help="Show the on-screen HUD (default: HUD in .env, on).",
     )
     parser.add_argument(
         "--env",

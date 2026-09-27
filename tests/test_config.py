@@ -163,7 +163,7 @@ def test_hud_settings_defaults(tmp_path, monkeypatch):
     monkeypatch.delenv(config.ENV_VAR, raising=False)
 
     cfg = config.load_config(env_path=tmp_path / "missing.env")
-    assert cfg.hud is False
+    assert cfg.hud is True
     assert cfg.hud_port == 47040
     assert cfg.hud_position == "top-right"
     assert cfg.hud_monitor == 0
@@ -181,7 +181,7 @@ def test_hud_settings_override_and_validation(tmp_path, monkeypatch):
     env_file.write_text(
         "\n".join(
             [
-                "HUD=on",
+                "HUD=off",
                 "HUD_PORT=50000",
                 "HUD_POSITION=Bottom-Left",
                 "HUD_MONITOR=1",
@@ -196,7 +196,7 @@ def test_hud_settings_override_and_validation(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     cfg = config.load_config(env_path=env_file)
-    assert cfg.hud is True
+    assert cfg.hud is False
     assert cfg.hud_port == 50000
     assert cfg.hud_position == "bottom-left"
     assert cfg.hud_monitor == 1

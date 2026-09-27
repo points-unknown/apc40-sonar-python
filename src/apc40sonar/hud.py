@@ -1,7 +1,7 @@
 """On-screen HUD: a small always-on-top tkinter window fed by UDP snapshots.
 
 Runs as its own process so a crash, hang or window drag can never stall the
-MIDI loop. The main app launches it when ``HUD=on``; it can also be started
+MIDI loop. The main app launches it unless ``HUD=off``; it can also be started
 by hand to attach to a running app::
 
     uv run python -m apc40sonar.hud [--layout expanded] [--position 100,40]

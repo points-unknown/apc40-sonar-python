@@ -35,17 +35,17 @@ uv run apc40sonar
 
 `run-apc40-sonar.cmd <args>` is a launcher that finds `uv` automatically. Stop with Ctrl+C.
 
-### On-screen HUD (optional)
+### On-screen HUD
 
-The APC40 has no display, so the app can show a small always-on-top window with the
-knob mode, track window, selected track, transport, time, and a short message for each
-action. Start the app with `--hud`:
+The APC40 has no display, so the app shows a small always-on-top window with the knob
+mode, track window, selected track, transport, time, and a short message for each
+action. It opens automatically with `uv run apc40sonar`. To run without it:
 
 ```bat
-uv run apc40sonar --hud
+uv run apc40sonar --no-hud
 ```
 
-Or set `HUD=on` in `.env` to always show it (`--no-hud` turns it off for one run).
+or set `HUD=off` in `.env` to turn it off for good.
 `HUD_LAYOUT=expanded` adds the 8 strips with track names, values and meters. Drag the
 window to move it; right-click for layout, opacity and Quit. The HUD runs as its own
 process and closes with the app. To attach one to an app that is already running:
@@ -71,7 +71,7 @@ APC40_CLIENT_NAME=apc40sonar
 APC40_MODE=generic           # generic | ableton | alt-ableton
 KNOB_STEP_LIMIT=3            # max V-pot steps per knob event
 KNOB_NOISE_THRESHOLD=4       # ignore knob steps larger than this (0 disables)
-HUD=off                      # on = small always-on-top status window
+HUD=on                       # small always-on-top status window (off = none)
 ```
 
 The full key reference, behavior notes, and architecture are in

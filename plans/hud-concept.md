@@ -208,7 +208,7 @@ toggle it silently.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `HUD` | `off` (MVP), `on` later | Launch the HUD child process |
+| `HUD` | `on` (was `off` for the MVP) | Launch the HUD child process |
 | `HUD_PORT` | `47040` | UDP port on 127.0.0.1 |
 | `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-*` or `x,y` |
 | `HUD_MONITOR` | `0` | Monitor index for placement |

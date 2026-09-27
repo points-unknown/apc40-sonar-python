@@ -24,7 +24,7 @@ Recognized keys (all optional; defaults match the documented topology):
     METER_DECAY_MS    meter fall time per segment     default: 300
     ZOOM_STEP_UNITS   crossfader travel per zoom step default: 6
     ZOOM_IDLE_MS      leave Cakewalk zoom mode after  default: 300
-    HUD               launch the on-screen HUD        default: off
+    HUD               launch the on-screen HUD        default: on
     HUD_PORT          HUD UDP port on 127.0.0.1       default: 47040
     HUD_POSITION      top-left/top-right/bottom-*/x,y default: top-right
     HUD_MONITOR       monitor index for placement     default: 0
@@ -56,7 +56,7 @@ DEFAULTS = {
     "METER_DECAY_MS": "300",
     "ZOOM_STEP_UNITS": "6",
     "ZOOM_IDLE_MS": "300",
-    "HUD": "off",
+    "HUD": "on",
     "HUD_PORT": "47040",
     "HUD_POSITION": "top-right",
     "HUD_MONITOR": "0",
@@ -89,7 +89,7 @@ class Config:
     meter_decay_ms: int = 300
     zoom_step_units: int = 6
     zoom_idle_ms: int = 300
-    hud: bool = False
+    hud: bool = True
     hud_port: int = 47040
     hud_position: str = "top-right"
     hud_monitor: int = 0
@@ -223,7 +223,7 @@ def load_config(
         meter_decay_ms=_as_int(values, "METER_DECAY_MS", 300),
         zoom_step_units=_as_int(values, "ZOOM_STEP_UNITS", 6),
         zoom_idle_ms=_as_int(values, "ZOOM_IDLE_MS", 300),
-        hud=_as_bool(values, "HUD", False),
+        hud=_as_bool(values, "HUD", True),
         hud_port=_as_int(values, "HUD_PORT", 47040),
         hud_position=str(values["HUD_POSITION"]).strip().lower() or "top-right",
         hud_monitor=max(0, _as_int(values, "HUD_MONITOR", 0)),
