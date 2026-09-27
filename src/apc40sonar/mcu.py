@@ -79,6 +79,8 @@ NOTE_SCRUB = 101
 NOTE_FADER_TOUCH1 = 104  # 104-111, master = 112
 NOTE_MASTER_FADER_TOUCH = 112
 
+FADER_MASTER_CHANNEL = 8  # Pitch Bend channel of the master fader
+
 # ---------------------------------------------------------------------------
 # Control Change numbers
 # ---------------------------------------------------------------------------

@@ -100,20 +100,54 @@ in use, then open Cakewalk.
 Cakewalk only lists a port under Control Surfaces after it has been enabled under
 Devices. If the ports are missing from the dropdowns, go back to step 1.
 
-5. **Turn on meters** (for the grid level meters). Open the surface's property page
-   (**Utilities > Mackie Control**) and set **Meters** to **Signal LEDs** or
-   **Signal LEDs + Meters**. Cakewalk defaults this to **Off** and then sends no meter
-   data at all. The setting is saved with the project, so set it in your template.
-   Shortcut: with apc40sonar running, **Shift + Detail View** on the APC40 toggles it.
+These Preferences settings are global: Cakewalk keeps them for every project.
 
-Cakewalk remembers these settings, so you only do this once.
+### 4. Cakewalk: Mackie Control surface settings (save as a preset)
 
-### 4. Check that it works
+The Mackie Control surface has its own settings page, and **its settings are stored per
+project**, not globally. Some of Cakewalk's defaults are wrong for the APC40, so every
+project needs these settings. Set them once, then save them as a preset and in your
+project template (see below) so you never have to look for them again.
+
+*Master Fader*, *Protocol* and *Disable handshake* are set-and-forget. *Meters* is
+different: it is a workflow choice you can flip at any time from the APC40 with
+**Shift + Detail View** (see [Meters on or off](#meters-on-or-off) below), so the preset
+only decides how each project **starts**.
+
+Open the page with **`Utilities > Mackie Control`** (with more than one surface it is
+listed as *Mackie Control - 1* and so on).
+
+| Setting | Where on the page | Set to | Cakewalk default | What goes wrong otherwise |
+|---|---|---|---|---|
+| **Meters** (starting state) | *Options* group, **Meters:** dropdown | **Signal LEDs** to start with grid meters on (*Signal LEDs + Meters* is the same for the APC40), or **Off** to start with them off | Off | Nothing breaks either way. Off means Cakewalk sends no meter data and the grid stays dark until you press **Shift + Detail View** |
+| **Master Fader** | *Master Fader* group (bottom left), two dropdowns | First: **Bus**. Second: your **Master** bus | *Master*, first strip | The APC40 master fader moves Cakewalk's hidden **hardware-output** strip instead of the Master bus, so it seems to do nothing |
+| **Protocol** | *Protocol* group | **Mackie Control Universal (Cakewalk/SONAR Mode)** | Same (leave it) | *Universal Mode* renumbers buttons and ignores the modifier keys; *HUI* and *Cubase Mode* are different protocols |
+| **Disable handshake** | *Options* group | **Checked** | Checked (leave it) | apc40sonar does not answer Cakewalk's Mackie handshake, so with this unchecked Cakewalk ignores every APC40 button and fader |
+
+Everything else on the page can stay at its default.
+
+> **"Master" means two different things.** In the *Master Fader* type dropdown,
+> *Master* is Cakewalk's hardware-output strip. The bus called "Master" in your project
+> is a normal **Bus**, so choose **Bus** and then pick it by name in the second dropdown.
+
+**Save the settings so they stick:**
+
+1. **Preset.** Use the preset box at the top of the Mackie Control window: type a name
+   such as `APC40` and click the save (disk) icon. In any project, pick `APC40` from that
+   box to apply all the settings at once.
+2. **Project template.** Apply the preset in an empty project and save it with
+   **`File > Save As`**, file type **Template**. New projects made from that template
+   start with the right settings. Existing projects still need the preset applied once
+   each.
+
+### 5. Check that it works
 
 - Move APC40 fader 1. Cakewalk track 1's volume follows.
+- Move the APC40 master fader. Cakewalk's **Master** bus volume follows. (If not, check
+  the *Master Fader* setting in step 4.)
 - Mute a track with the mouse. The matching APC40 Activator LED changes.
 - Press Play on the APC40. Cakewalk starts playing. With audio playing, the clip grid
-  shows level meters.
+  shows level meters. (If it stays dark, press **Shift + Detail View** to turn meters on.)
 
 ## Daily startup
 
@@ -129,6 +163,18 @@ To stop, press Ctrl+C in the apc40sonar window. A desktop shortcut to
 Useful options: `--no-show` skips the lightshow and `--monitor` prints every MIDI
 message in both directions. [`GENERAL.md`](GENERAL.md#runtime-modes) lists them all.
 
+## Meters on or off
+
+The clip grid shows a level meter per track while Cakewalk sends meter data. Whether it
+does is Cakewalk's *Meters* setting, and you can switch it without opening any dialog:
+
+- **Shift + Detail View** on the APC40 turns Cakewalk's meters **on** if they are off,
+  and **off** if they are on. The Detail View LED flashes to confirm; within half a
+  second the grid meters appear or fall dark.
+- Use it whenever the workflow calls for it, for example meters on while mixing and off
+  while programming or editing. The change is saved with the project like any other
+  Mackie Control setting.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -139,8 +185,10 @@ message in both directions. [`GENERAL.md`](GENERAL.md#runtime-modes) lists them 
 | Lightshow runs but Cakewalk does nothing | Surface missing or ports swapped | Check that Mackie Control has Input `APC40-IN` and Output `APC40-OUT` |
 | Cakewalk responds but LEDs don't follow | `APC40-OUT` not enabled as a Cakewalk output | Enable it under MIDI Devices, then re-check the surface's Output port |
 | A button toggles twice per press | APC40 also set up directly in Cakewalk | Remove any APC40 device/surface in Cakewalk. Only the Mackie Control surface on the loopMIDI cables should remain |
-| Grid meters stay dark with audio playing | Mackie Control **Meters** is Off (Cakewalk's default, saved per project) | Press **Shift + Detail View**, or **Utilities > Mackie Control** and set **Meters** to *Signal LEDs*. `--monitor` then shows `mcu: [208, ...]` lines |
-| Shift + Detail View does nothing (log: "sent no meters") | Surface protocol set to *Universal* or *HUI* | Set the Mackie Control surface protocol back to the default, or use the property page |
+| Grid meters stay dark with audio playing | Cakewalk's **Meters** is Off in this project | Press **Shift + Detail View** on the APC40. `--monitor` then shows `mcu: [208, ...]` lines |
+| Master fader moves nothing (but `--monitor` shows `mcu: [232, ...]` echoes) | *Master Fader* is on type *Master* (hardware outputs), Cakewalk's default | Apply your `APC40` preset, or set **Master Fader** to **Bus** + your Master bus ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
+| Every APC40 button and fader is ignored, but LEDs still follow Cakewalk | **Disable handshake** is unchecked | Check it again ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
+| Shift + Detail View does nothing (log: "sent no meters") | *Protocol* is not *Cakewalk/SONAR Mode* | Set it back ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | MCU data shows up in a MIDI track recording | Track input set to Omni | Set MIDI track inputs to your keyboard instead of *All Inputs / Omni* |
 
 `uv run apc40sonar --monitor` shows `apc:`/`mcu:` for incoming messages and

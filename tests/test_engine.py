@@ -624,3 +624,20 @@ def test_device_knobs_follow_the_bank_channel_in_device_mode():
     eng.on_apc_message((0xB8, apc.CC_DEVICE_KNOB1, 6))
 
     assert rec.mcu_msgs == [mcu.vpot_delta(1, 1)]
+
+
+def test_master_fader_maps_to_pitch_bend_channel_8():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0xB0, apc.CC_MASTER_LEVEL, 127))
+    eng.on_apc_message((0xB0, apc.CC_MASTER_LEVEL, 0))
+
+    assert rec.mcu_msgs == [(0xE8, 127, 127), (0xE8, 0, 0)]
+
+
+def test_master_fader_channel_is_not_significant():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0xB8, apc.CC_MASTER_LEVEL, 64))
+
+    assert rec.mcu_msgs == [mcu.fader_from_7bit(8, 64)]

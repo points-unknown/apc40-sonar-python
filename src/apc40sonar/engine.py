@@ -198,6 +198,13 @@ class Engine:
             self._send_mcu(mcu.fader_from_7bit(channel, value))
             return
 
+        # Master fader (channel not significant) -> MCU master fader. Cakewalk
+        # binds it to the hardware outputs by default; the Mackie Control
+        # Master Fader setting must be Bus + Master bus. No fader touch is needed.
+        if cc == apc.CC_MASTER_LEVEL:
+            self._send_mcu(mcu.fader_from_7bit(mcu.FADER_MASTER_CHANNEL, value))
+            return
+
         # Device Control knobs report on the selected bank's channel (0-8) and
         # drive the V-pots in device mode.
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:

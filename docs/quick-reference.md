@@ -77,7 +77,7 @@ Planned: Send A/B/C each address their own send.
 
 | Control | Action | Status | Planned |
 |---|---|---|---|
-| **Master fader** | - | `-` | Master volume (MCU fader 9) |
+| **Master fader** | Master bus volume (set Cakewalk's Mackie *Master Fader* to Bus + Master bus; see setup guide) | **Live** | - |
 | **Crossfader** | - | `-` | Configurable CC, or leave unused |
 | **Cue Level** | - | `-` | MCU jog wheel (scrub/shuttle) |
 | **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |

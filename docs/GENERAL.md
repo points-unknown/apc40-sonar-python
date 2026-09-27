@@ -93,6 +93,7 @@ Process-environment values override the file, so a one-off run can use
 | APC40 control | MCU message |
 |---|---|
 | Fader 1-8 (CC 7, ch0-7) | Pitch Bend ch0-7, 7-bit scaled to 14-bit |
+| Master fader (CC 14, any channel) | Pitch Bend ch8 (Cakewalk master fader; see below) |
 | Track Control knob 1-8 (CC 48-55) | V-pot rotation CC 16-23, relative |
 | Record Arm (note 48) | Rec notes 0-7 |
 | Solo (note 49) | Solo notes 8-15 |
@@ -102,6 +103,12 @@ Process-environment values override the file, so a one-off run can use
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
 | Metronome (65) | Click note 89 |
 | Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 + ring style |
+
+Cakewalk's master fader defaults to strip type *Master*, which is the hardware-output
+strip, not the project's Master **bus**. Set the surface's **Master Fader** group to
+**Bus** + your Master bus (Utilities > Mackie Control); it is saved per project. Cakewalk
+echoes master fader moves back as Pitch Bend ch8, which the engine ignores like all fader
+feedback.
 
 Feedback renders MCU notes 0-31 to the strip LEDs, transport/Click/Cycle to the
 corresponding APC40 LEDs, MCU CC 48-55 to the ring banks, and MCU channel meters to the
