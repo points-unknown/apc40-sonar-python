@@ -91,18 +91,22 @@ METER_SEGMENTS = (
 )
 METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
 
+# MCU buttons Cakewalk acts on at *release*: they need a release it can see.
+CAKEWALK_RELEASE_BUTTONS = frozenset({mcu.NOTE_CW_LOOP})
+
 # APC40 global buttons -> MCU notes (channel 0). Cakewalk treats the MCU
 # cursor buttons as keyboard arrow keys; Bank Left/Right moves the 8-strip
 # window by 8 tracks.
 APC_GLOBAL_BUTTONS = {
     apc.NOTE_PLAY: mcu.NOTE_PLAY,
-    apc.NOTE_STOP: mcu.NOTE_STOP,
     apc.NOTE_RECORD: mcu.NOTE_RECORD,
     apc.NOTE_UP: mcu.NOTE_UP,
     apc.NOTE_DOWN: mcu.NOTE_DOWN,
     apc.NOTE_LEFT: mcu.NOTE_BANK_LEFT,
     apc.NOTE_RIGHT: mcu.NOTE_BANK_RIGHT,
-    apc.NOTE_UTIL_METRONOME: mcu.NOTE_CLICK,
+    # Loop on/off: Cakewalk mode has no metronome button; its note 89 (the
+    # standard MCU "Click") toggles transport loop and its LED shows loop state.
+    apc.NOTE_UTIL_METRONOME: mcu.NOTE_CW_LOOP,
 }
 
 # Shift + APC40 button -> MCU note. Channel Left/Right moves the window by
@@ -110,7 +114,14 @@ APC_GLOBAL_BUTTONS = {
 APC_SHIFT_BUTTONS = {
     apc.NOTE_LEFT: mcu.NOTE_CHANNEL_LEFT,
     apc.NOTE_RIGHT: mcu.NOTE_CHANNEL_RIGHT,
+    # Metronome on/off via Mackie F1, which the Cakewalk preset assigns to
+    # "Metronome During Record". Cakewalk reports no state for it.
+    apc.NOTE_UTIL_METRONOME: mcu.NOTE_F1,
 }
+
+# Cue Level: max jog messages per knob event. Cakewalk ignores the jog value's
+# magnitude, so a fast turn is sent as several single steps.
+CUE_JOG_STEP_LIMIT = 4
 
 # Buttons whose LED flashes to acknowledge a press (no host feedback exists).
 APC_FLASH_ON_PRESS = frozenset({apc.NOTE_LEFT, apc.NOTE_RIGHT})
@@ -132,6 +143,7 @@ class Engine:
         meters: bool = True,
         meter_decay_frames: int = 15,
         meter_settle_frames: int = 25,
+        stop_double_frames: int = 20,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -154,12 +166,16 @@ class Engine:
         # while its meters are on, silence included. Meter traffic within this
         # many frames therefore means "Cakewalk meters on".
         self.meter_settle_frames = max(2, meter_settle_frames)
+        # A second Stop press within this many frames also returns to the start.
+        self.stop_double_frames = stop_double_frames
 
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
         self.bank = 0  # informational track-bank offset
         self.show_running = False
         self.shift = False
+        # Last loop LED state from Cakewalk, shown on the Metronome button.
+        self._loop_led = apc.LED_OFF
 
         self._track_knob_abs: dict[int, int] = {}
         self._device_knob_abs: dict[int, int] = {}
@@ -170,6 +186,7 @@ class Engine:
         self._frame = 0
         self._last_meter_frame: int | None = None
         self._meter_toggle: dict | None = None
+        self._last_stop_frame: int | None = None
 
     # ------------------------------------------------------------------
     # MCU output helpers
@@ -184,11 +201,16 @@ class Engine:
 
         The MCU treats a note "bang" as a single button press, so this is one
         toggle in Cakewalk. It is used for both momentary APC40 buttons and for
-        each edge of a latching APC40 toggle button.
+        each edge of a latching APC40 toggle button. Buttons Cakewalk acts on
+        at release (Loop) get a Note On velocity 0 release instead, because
+        Cakewalk drops real Note Offs.
         """
 
         self._send_mcu(mcu.button_press(note))
-        self._send_mcu(mcu.button_release(note))
+        if note in CAKEWALK_RELEASE_BUTTONS:
+            self._send_mcu(mcu.cakewalk_release(note))
+        else:
+            self._send_mcu(mcu.button_release(note))
 
     # ------------------------------------------------------------------
     # APC40 input
@@ -222,6 +244,14 @@ class Engine:
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
             if channel < apc.DEVICE_BANKS and not self.mixer:
                 self._relative_knob(self._device_knob_abs, cc - apc.CC_DEVICE_KNOB1 + 1, value)
+            return
+
+        # Cue Level (relative, channel not significant) -> jog: moves the now
+        # time by Cakewalk's Jog Wheel Resolution per step.
+        if cc == apc.CC_CUE_LEVEL:
+            delta = value - 128 if value > 63 else value
+            for _ in range(min(abs(delta), CUE_JOG_STEP_LIMIT)):
+                self._send_mcu(mcu.jog(delta > 0))
             return
 
         if channel != 0:
@@ -304,6 +334,14 @@ class Engine:
         if channel != 0:
             return
 
+        # The Metronome button is momentary: the APC40 switches its own LED off
+        # on release, which can land after Cakewalk's loop LED update (during
+        # playback Cakewalk refreshes fast enough to beat the finger). Re-assert
+        # the loop state on every release.
+        if note == apc.NOTE_UTIL_METRONOME and not pressed:
+            self.apc.global_note(apc.NOTE_UTIL_METRONOME, self._loop_led, force=True)
+            return
+
         if note == apc.NOTE_SHIFT:
             self.shift = pressed
             self.apc.global_note(apc.NOTE_SHIFT, apc.LED_ON if pressed else apc.LED_OFF, force=True)
@@ -318,8 +356,13 @@ class Engine:
             shifted = APC_SHIFT_BUTTONS.get(note)
             if shifted is not None:
                 self._mcu_click(shifted)
-                self._flash_global(note)
+                if note in APC_FLASH_ON_PRESS:
+                    self._flash_global(note)
                 return
+
+        if note == apc.NOTE_STOP and pressed:
+            self._on_stop_press()
+            return
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)
         if mcu_note is not None:
@@ -351,6 +394,17 @@ class Engine:
             self.apc.global_note(apc.NOTE_MASTER, apc.LED_ON)
         elif note == apc.NOTE_TAP_TEMPO:
             self._flash_global(apc.NOTE_TAP_TEMPO)
+
+    def _on_stop_press(self) -> None:
+        """Stop; a second press soon after also goes to the start (MCU Home)."""
+
+        self._mcu_click(mcu.NOTE_STOP)
+        last = self._last_stop_frame
+        if last is not None and self._frame - last <= self.stop_double_frames:
+            self._mcu_click(mcu.NOTE_CW_HOME)
+            self._last_stop_frame = None  # a third press starts a new pair
+        else:
+            self._last_stop_frame = self._frame
 
     # ------------------------------------------------------------------
     # Knob modes
@@ -420,10 +474,9 @@ class Engine:
             self.apc.global_note(apc.NOTE_STOP, on, force=True)
         elif note == mcu.NOTE_RECORD:
             self.apc.global_note(apc.NOTE_RECORD, on, force=True)
-        elif note == mcu.NOTE_CLICK:
+        elif note == mcu.NOTE_CW_LOOP:
+            self._loop_led = on
             self.apc.global_note(apc.NOTE_UTIL_METRONOME, on, force=True)
-        elif note == mcu.NOTE_CYCLE:
-            self.apc.global_note(apc.NOTE_UTIL_REC_QUANT, on, force=True)  # provisional
 
     def on_mcu_cc(self, cc: int, value: int) -> None:
         if not (mcu.CC_RING1 <= cc < mcu.CC_RING1 + self.tracks):
@@ -504,7 +557,7 @@ class Engine:
 
         self._send_mcu(mcu.button_press(mcu.NOTE_M2))
         self._mcu_click(mcu.NOTE_NAME_VALUE)
-        self._send_mcu(mcu.modifier_release(mcu.NOTE_M2))
+        self._send_mcu(mcu.cakewalk_release(mcu.NOTE_M2))
 
     def _settle_meter_toggle(self) -> None:
         toggle = self._meter_toggle

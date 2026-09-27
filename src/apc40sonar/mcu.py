@@ -44,6 +44,7 @@ NOTE_CHANNEL_RIGHT = 49
 NOTE_FLIP = 50
 NOTE_GLOBAL = 51
 NOTE_NAME_VALUE = 52
+NOTE_F1 = 54  # F1-F8 = 54-61; Cakewalk runs the command assigned on its surface page
 
 # Modifiers M1-M4 (Cakewalk: M1 Ctrl, M2 Option, M3 Snapshot, M4 Shift). Held
 # while another button is pressed. Cakewalk only honors them with its default
@@ -75,6 +76,11 @@ NOTE_LEFT = 98
 NOTE_RIGHT = 99
 NOTE_ZOOM = 100
 NOTE_SCRUB = 101
+
+# Cakewalk's own meaning ("Cakewalk/SONAR Mode" protocol) where it differs from
+# the standard MCU labels above. Cakewalk has no Click (metronome) button.
+NOTE_CW_LOOP = 89  # standard "Click": transport loop on/off; LED = loop state
+NOTE_CW_HOME = 90  # standard "Solo": go to start
 
 NOTE_FADER_TOUCH1 = 104  # 104-111, master = 112
 NOTE_MASTER_FADER_TOUCH = 112
@@ -156,15 +162,24 @@ def button_release(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
     return note_off(note, 0, channel)
 
 
-def modifier_release(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
-    """Release a held modifier with Note On velocity 0.
+def cakewalk_release(note: int, channel: int = CHANNEL) -> tuple[int, int, int]:
+    """A button release Cakewalk actually sees: Note On velocity 0.
 
     Cakewalk's Mackie Control only dispatches status 0x90 to its button
     handler, so a real Note Off is silently dropped. That is harmless for
-    ordinary buttons (only the press acts) but would leave a modifier stuck on.
+    ordinary buttons (only the press acts) but breaks anything Cakewalk acts
+    on at release: a held modifier stays stuck on, and Loop (which toggles on
+    release) never toggles.
     """
 
     return note_on(note, 0, channel)
+
+
+def jog(forward: bool) -> tuple[int, int, int]:
+    """One jog-wheel step. Cakewalk reads only the direction bit (0x40 = back)
+    and moves the now time by its Jog Wheel Resolution per message."""
+
+    return control_change(CC_JOG, 0x01 if forward else 0x41)
 
 
 def fader_from_7bit(channel: int, value7: int) -> tuple[int, int, int]:

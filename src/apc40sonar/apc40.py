@@ -89,6 +89,7 @@ NAV_NOTES = (NOTE_UP, NOTE_DOWN, NOTE_LEFT, NOTE_RIGHT)
 CC_TRACK_LEVEL = 7  # channel faders, per-track channel 0-7
 CC_MASTER_LEVEL = 14  # master fader (channel not significant)
 CC_CROSSFADER = 15  # crossfader (channel not significant)
+CC_CUE_LEVEL = 47  # Cue Level knob: relative, two's-complement delta
 
 CC_DEVICE_KNOB1 = 16  # 16-23: Device Control positions
 CC_DEVICE_RING_STYLE1 = 24  # 24-31: Device Control ring styles

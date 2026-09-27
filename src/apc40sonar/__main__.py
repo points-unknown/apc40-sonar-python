@@ -225,6 +225,7 @@ def _run(args: argparse.Namespace) -> int:
         meters=cfg.meters,
         meter_decay_frames=round(cfg.meter_decay_ms / 1000 / POLL_SECONDS),
         meter_settle_frames=round(0.5 / POLL_SECONDS),
+        stop_double_frames=round(0.4 / POLL_SECONDS),
     )
 
     try:

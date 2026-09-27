@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 105 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 116 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -23,7 +23,9 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
 - [ ] Detail View (62): local view toggle or keystroke (Shift + Detail View = Cakewalk meters on/off, done)
 - [ ] Rec Quantize (63): keystroke (`Ctrl+Alt+R`) with local flash
 - [ ] MIDI Overdub (64): keystroke (`Ctrl+Alt+O`) with the Overdub LED from feedback
-- [x] Metronome (65): MCU Click (done)
+- [x] Metronome (65): Cakewalk Loop on/off (note 89; Cakewalk mode has no Click), LED = loop
+      state. Shift + Metronome = metronome during record via Mackie F1, assigned to
+      *Metronome During Record* in the preset (done)
 
 ### Scene buttons (notes 82-86)
 
@@ -120,20 +122,40 @@ Tasks:
 - [ ] Show which bank is active (e.g. briefly on the grid); Cakewalk does not report the
       strip offset over MCU, so it would have to be tracked locally
 - [x] Master fader (APC CC 14) -> MCU Pitch Bend ch 8 (done)
-- [ ] Considering the crossfader (APC CC 15): map to a configurable CC or leave unused
+- [ ] **Crossfader = horizontal zoom** (APC CC 15, absolute 0-127). All Mackie Control;
+      no keystrokes or mouse injection
+  - [ ] Verify in Cakewalk: with MCU Zoom (note 100) on, Left/Right arrows zoom
+        horizontally out/in (Cakewalk's MCU mode remaps some notes - note 89 is Loop, not
+        Click - so confirm Zoom and the arrows behave as standard), and which point it
+        zooms around
+  - [ ] Zoom steps: slider movement -> relative steps (modular delta like the knobs);
+        every N slider units (default ~8, tune so one full sweep covers the zoom range)
+        send one Right (zoom in) or Left (zoom out) arrow press
+  - [ ] Zoom mode handling: turn MCU Zoom on at the first movement, off after ~300 ms
+        without movement, so the arrows return to normal; track the Zoom LED feedback so
+        the app never toggles it the wrong way
+  - [ ] Fully left = fit: at value <= 1, send one **Mackie F2** press, which the preset
+        assigns to *Zoom to Fit Project Horizontally* (F1 is already *Metronome During
+        Record*). Re-arm once the slider returns above ~10 so end-of-travel jitter does
+        not repeat it. After a fit, moving right zooms in step by step, so slider position
+        roughly tracks zoom level
+  - [ ] Optional rate cap if a fast sweep makes the Track view stutter
+  - [ ] Settings in `.env` (e.g. `ZOOM_STEP_UNITS`, `ZOOM_IDLE_MS`); tests; update the
+        quick reference, GENERAL.md, and the F2 assignment in the setup guide
 - [ ] Rewind/Forward, Cycle, Punch/Drop, Nudge, Zoom, Scrub, Markers
 - [x] Bank Select arrows decided: Left/Right = bank, Shift + Left/Right = channel,
       Up/Down = Cakewalk arrow keys (done). In step-sequencer mode they will page steps
       (Left/Right) and lanes (Up/Down) instead
 - [ ] Nudge + / - (100/101): unassigned; candidates are MCU Rewind/Forward or Nudge
 - [ ] Tap Tempo (99): only flashes its LED; needs the keystroke bridge for real tap tempo
-- [ ] Cue Level knob (CC 47, relative): unassigned; candidate is the MCU jog wheel (CC 60)
-      for scrub/shuttle
+- [x] Cue Level knob (CC 47) -> MCU jog (CC 60): moves the playhead by the preset's Jog
+      Wheel Resolution (done). Idea: Shift + Cue Level for finer steps (hold M2 = beats)
+- [x] Stop pressed twice quickly -> Cakewalk Home (go to start) (done)
 - [ ] Master button (80): only stays lit; candidates are select the master bus or MCU Flip.
       Note it also switches the Device Control bank to channel 8 in Mode 0
 - [ ] Footswitches 1 / 2 (CC 64 / 67): unassigned; candidates are Play/Stop and Record
-- [ ] Cycle feedback is shown on the Rec Quantize LED as a placeholder; move it to
-      whichever button ends up owning Cycle
+- [x] Removed the Rec Quantize "Cycle" LED placeholder: in Cakewalk mode LED 86 is the
+      Select-navigation mode, and loop state is already on the Metronome LED
 - [ ] Shift as a modifier for alternate button functions (layer in place; Shift + Detail View mapped)
 - [ ] Track Control knob buttons (the switches under the knobs)
 

@@ -104,8 +104,25 @@ Process-environment values override the file, so a one-off run can use
 | Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
 | Shift + Bank Select Left / Right | Channel Left 48 / Channel Right 49 (window moves by 1) |
 | Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
-| Metronome (65) | Click note 89 |
+| Metronome (65, bank channel 0-8) | Note 89: Cakewalk's **Loop on/off** (see below) |
+| Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
+| Cue Level (CC 47, relative) | Jog CC 60: one message per detent (max 4 per event), `0x01` forward / `0x41` back |
 | Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 + ring style |
+
+**Cakewalk mode renames some MCU buttons.** With the *Cakewalk/SONAR Mode* protocol,
+Cakewalk's Mackie Control uses its own button table, and a few notes differ from the
+standard MCU labels: note 89 (standard *Click*) is **Loop on/off** (LED 89 shows loop
+state). Loop toggles on **release**, and Cakewalk only passes status 0x90 to its buttons,
+so the engine releases it with Note On velocity 0; a real Note Off (0x80) is dropped and
+loop never toggles. The APC40's Metronome button is momentary and switches its own LED
+off on release; during playback Cakewalk's loop LED can arrive while the button is still
+held, so the engine re-sends the last loop state on every Metronome release. Note 90
+(standard *Solo*) is **Home** (go to
+start), and LED 86 (standard *Cycle*) is the Select-navigation mode. There is **no
+metronome button**; the metronome is reached through an F-key (54-61) assigned to a
+Cakewalk command on the surface page. The Cue Level jog moves the now time by the page's
+*Jog Wheel Resolution*; Cakewalk ignores the jog value's size, so each message is one
+step.
 
 Cakewalk's master fader defaults to strip type *Master*, which is the hardware-output
 strip, not the project's Master **bus**. Set the surface's **Master Fader** group to
@@ -168,6 +185,7 @@ Shift were not held.
 |---|---|
 | Shift + Detail View (62) | Toggle Cakewalk's Mackie Control meters (see above) |
 | Shift + Bank Select Left / Right | Move the strip window by one track (MCU Channel Left/Right) |
+| Shift + Metronome (65) | MCU F1 (54): the preset assigns it to Cakewalk's *Metronome During Record* |
 
 ### Latching buttons
 

@@ -236,11 +236,11 @@ def test_feedback_strip_led_on_then_off():
     ]
 
 
-def test_feedback_transport_and_click():
+def test_feedback_transport_and_loop_on_the_metronome_led():
     eng, rec, _ = make_engine()
 
     eng.on_mcu_message((0x90, mcu.NOTE_PLAY, 127))
-    eng.on_mcu_message((0x90, mcu.NOTE_CLICK, 127))
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 127))
 
     assert (0x90, apc.NOTE_PLAY, 127) in rec.apc_msgs
     assert (0x90, apc.NOTE_UTIL_METRONOME, 127) in rec.apc_msgs
@@ -480,7 +480,7 @@ METER_STEP = [
     mcu.button_press(mcu.NOTE_M2),
     mcu.button_press(mcu.NOTE_NAME_VALUE),
     mcu.button_release(mcu.NOTE_NAME_VALUE),
-    mcu.modifier_release(mcu.NOTE_M2),
+    mcu.cakewalk_release(mcu.NOTE_M2),
 ]
 
 
@@ -500,9 +500,9 @@ def run_frames(eng, frames, meter_every=None):
         eng.tick()
 
 
-def test_modifier_release_is_note_on_velocity_zero():
+def test_cakewalk_release_is_note_on_velocity_zero():
     # Cakewalk drops 0x80 for switches, which would leave M2 stuck on.
-    assert mcu.modifier_release(mcu.NOTE_M2) == (0x90, 71, 0)
+    assert mcu.cakewalk_release(mcu.NOTE_M2) == (0x90, 71, 0)
 
 
 def test_shift_lights_while_held_and_sends_nothing():
@@ -598,13 +598,13 @@ def test_shift_detail_works_on_the_master_bank_channel():
     assert rec.mcu_msgs == METER_STEP
 
 
-def test_metronome_works_from_any_bank_channel():
+def test_metronome_button_loop_works_from_any_bank_channel():
     eng, rec, _ = make_engine()
 
     for bank in (0, 3, 8):
         eng.on_apc_message((0x90 | bank, apc.NOTE_UTIL_METRONOME, 127))
 
-    click = [mcu.button_press(mcu.NOTE_CLICK), mcu.button_release(mcu.NOTE_CLICK)]
+    click = [mcu.button_press(mcu.NOTE_CW_LOOP), mcu.cakewalk_release(mcu.NOTE_CW_LOOP)]
     assert rec.mcu_msgs == click * 3
 
 
@@ -690,3 +690,118 @@ def test_bank_arrow_led_flashes_to_acknowledge():
 
     eng.tick()
     assert rec.apc_msgs[-1] == (0x80, apc.NOTE_RIGHT, 0)
+
+
+# ---------------------------------------------------------------------------
+# Loop, metronome, Stop x2 and Cue Level jog
+# ---------------------------------------------------------------------------
+
+
+def test_metronome_button_toggles_cakewalk_loop_with_a_visible_release():
+    # Cakewalk toggles Loop on release and drops 0x80, so the release must be
+    # Note On velocity 0 (captured from hardware: 0x80 left loop unchanged).
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x98, apc.NOTE_UTIL_METRONOME, 127))
+
+    assert rec.mcu_msgs == [(0x90, 89, 127), (0x90, 89, 0)]
+
+
+def test_shift_metronome_sends_f1_without_touching_the_loop_led():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x98, apc.NOTE_UTIL_METRONOME, 127))  # Master bank
+
+    assert rec.mcu_msgs == click(mcu.NOTE_F1)
+    assert all(m[1] != apc.NOTE_UTIL_METRONOME for m in rec.apc_msgs)
+
+
+def test_rec_quantize_led_no_longer_follows_mcu_note_86():
+    # Note 86 is Cakewalk's Select-navigation LED, not Cycle.
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message((0x90, 86, 127))
+
+    assert rec.apc_msgs == []
+
+
+def test_single_stop_only_stops():
+    eng, rec, _ = make_engine(stop_double_frames=5)
+
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_STOP)
+
+
+def test_double_stop_returns_to_start():
+    eng, rec, _ = make_engine(stop_double_frames=5)
+
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+    eng.on_apc_message((0x80, apc.NOTE_STOP, 127))
+    for _ in range(3):
+        eng.tick()
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_STOP) * 2 + click(mcu.NOTE_CW_HOME)
+
+
+def test_slow_second_stop_does_not_return_to_start():
+    eng, rec, _ = make_engine(stop_double_frames=5)
+
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+    for _ in range(6):
+        eng.tick()
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+
+    assert rec.mcu_msgs == click(mcu.NOTE_STOP) * 2
+
+
+def test_triple_stop_does_not_go_home_twice():
+    eng, rec, _ = make_engine(stop_double_frames=5)
+
+    for _ in range(3):
+        eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
+
+    assert rec.mcu_msgs.count(mcu.button_press(mcu.NOTE_CW_HOME)) == 1
+
+
+def test_cue_level_jogs_forward_and_back():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))  # +1
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 127))  # -1
+
+    assert rec.mcu_msgs == [(0xB0, mcu.CC_JOG, 0x01), (0xB0, mcu.CC_JOG, 0x41)]
+
+
+def test_fast_cue_turn_sends_several_capped_steps():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 3))
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 128 - 20))  # -20, capped
+
+    assert rec.mcu_msgs == [mcu.jog(True)] * 3 + [mcu.jog(False)] * engine_mod.CUE_JOG_STEP_LIMIT
+
+
+def test_metronome_release_reasserts_the_loop_led():
+    # During playback Cakewalk's loop LED can arrive while the button is still
+    # held; the APC40 then blanks its own LED on release. Re-send on release.
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x98, apc.NOTE_UTIL_METRONOME, 127))
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 127))  # loop on, button still held
+    rec.apc_msgs.clear()
+    eng.on_apc_message((0x88, apc.NOTE_UTIL_METRONOME, 127))  # release
+
+    assert rec.apc_msgs == [(0x90 | bank, apc.NOTE_UTIL_METRONOME, 127) for bank in range(9)]
+
+
+def test_metronome_release_keeps_the_led_dark_when_loop_is_off():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 0))
+    rec.apc_msgs.clear()
+    eng.on_apc_message((0x88, apc.NOTE_UTIL_METRONOME, 127))
+
+    assert rec.apc_msgs == [(0x80 | bank, apc.NOTE_UTIL_METRONOME, 0) for bank in range(9)]

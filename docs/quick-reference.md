@@ -78,8 +78,8 @@ Planned: Send A/B/C each address their own send.
 | Control | Action | Status | Planned |
 |---|---|---|---|
 | **Master fader** | Master bus volume (set Cakewalk's Mackie *Master Fader* to Bus + Master bus; see setup guide) | **Live** | - |
-| **Crossfader** | - | `-` | Configurable CC, or leave unused |
-| **Cue Level** | - | `-` | MCU jog wheel (scrub/shuttle) |
+| **Crossfader** | - | `-` | Horizontal zoom: slide right = zoom in, left = zoom out; fully left = fit project (Mackie F2) |
+| **Cue Level** | Move the playhead: one step per detent, clockwise = forward. Step size = the *Jog Wheel Resolution* in the Mackie Control preset (Measures by default) | **Live** | Shift + Cue Level for finer steps |
 | **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |
 
 ## Knob mode buttons
@@ -100,16 +100,16 @@ These buttons work, and their LEDs show, whichever track (or Master) is selected
 | **Left arrow** | - | - | - | `-` | Device knob page / parameter bank |
 | **Right arrow** | - | - | - | `-` | Device knob page / parameter bank |
 | **Detail View** | - | **Toggle Cakewalk meters** on/off | Flashes on toggle | **Live** (Shift only) | Local view toggle or keystroke |
-| **Rec Quantize** | - | - | *Provisional:* shows Cakewalk **Cycle** (loop) state | `-` | Keystroke `Ctrl+Alt+R` with flash |
+| **Rec Quantize** | - | - | - | `-` | Keystroke `Ctrl+Alt+R` with flash |
 | **MIDI Overdub** | - | - | - | `-` | Keystroke `Ctrl+Alt+O`, LED from feedback |
-| **Metronome** | Click on/off | - | From Cakewalk | **Live** | - |
+| **Metronome** | **Loop on/off** (Cakewalk's transport loop: playback repeats between the loop markers) | **Metronome during record on/off** (needs F1 in the Mackie Control preset) | Lit while **loop** is on, from Cakewalk. The metronome has no LED | **Live** | - |
 
 ## Transport and navigation
 
 | Button | Action | LED | Status | Planned |
 |---|---|---|---|---|
 | **Play** | Play | From Cakewalk | **Live** | - |
-| **Stop** | Stop | From Cakewalk | **Live** | - |
+| **Stop** | Stop. **Press twice quickly** (within 0.4 s) to also return to the start of the project | From Cakewalk | **Live** | - |
 | **Record** | Record | From Cakewalk | **Live** | - |
 | **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...) | Flashes on press | **Live** | Page steps in the step sequencer |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
@@ -128,6 +128,7 @@ action while Shift is held.
 |---|---|---|
 | **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by 1 track | **Live** |
+| **Shift + Metronome** | Metronome **during record** on/off (sends Mackie F1; the preset assigns F1 to *Metronome During Record*) | **Live** |
 
 Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
 Shift + Scene = record-enable scene, other alternate strip actions.
