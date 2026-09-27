@@ -211,7 +211,13 @@ class Engine:
         self._loop_led = apc.LED_OFF
 
         self._track_knob_abs: dict[int, int] = {}
-        self._device_knob_abs: dict[int, int] = {}
+        # Device knob positions per APC40 bank (channel 0-8): each bank keeps
+        # its own positions, and a bank switch dumps that bank's values, so a
+        # single shared baseline would read every switch as knob movement.
+        self._device_knob_abs: dict[int, dict[int, int]] = {}
+        # Current Device Control bank (channel 0-8), from the channel of the
+        # latest Device knob or utility-row message. Device rings go here.
+        self.device_bank = 0
         self._flashes: list[dict] = []
         self._meter_level = [0] * tracks
         self._meter_age = [0] * tracks
@@ -288,10 +294,12 @@ class Engine:
         # drive the V-pots in device mode.
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
             if channel < apc.DEVICE_BANKS:
+                self.device_bank = channel
                 self._knob_dump.setdefault(channel, set()).add(cc)
                 self._knob_dump_frame = self._frame
-            if channel < apc.DEVICE_BANKS and not self.mixer:
-                self._relative_knob(self._device_knob_abs, cc - apc.CC_DEVICE_KNOB1 + 1, value)
+                if not self.mixer:
+                    store = self._device_knob_abs.setdefault(channel, {})
+                    self._relative_knob(store, cc - apc.CC_DEVICE_KNOB1 + 1, value)
             return
 
         # Cue Level (relative, channel not significant) -> jog: moves the now
@@ -380,6 +388,7 @@ class Engine:
         # channel, 0-7 for Tracks 1-8 or 8 for Master. It is still one global
         # control, so fold the bank channel away.
         if note in apc.NOTE_UTIL_ROW and channel < apc.DEVICE_BANKS:
+            self.device_bank = channel
             channel = 0
 
         # Other global controls are always on channel 0, which Track 1 also
@@ -668,10 +677,12 @@ class Engine:
         if self.mixer:
             self.apc.ring_position(apc.track_ring_cc(index), position)
         else:
-            self.apc.ring_position(apc.device_ring_cc(index), position)
+            bank = self.device_bank
+            self.apc.ring_position(apc.device_ring_cc(index), position, channel=bank)
             self.apc.ring_style(
                 apc.device_ring_style_cc(index),
                 RING_STYLE_FROM_MCU[ring.mode],
+                channel=bank,
                 force=True,
             )
 
@@ -861,9 +872,12 @@ class Engine:
         self._meter_level = [0] * self.tracks
         self._meter_age = [0] * self.tracks
         self._meter_clip = [False] * self.tracks
-        for knob in range(1, self.tracks + 1):
-            self.apc.ring_style(apc.device_ring_style_cc(knob), apc.RING_PAN, force=True)
-            self.apc.ring_position(apc.device_ring_cc(knob), 63, force=True)
+        # Device rings are per bank: center them on all nine so every Track
+        # Selection shows the same resting state.
+        for bank in range(apc.DEVICE_BANKS):
+            for knob in range(1, self.tracks + 1):
+                self.apc.ring_style(apc.device_ring_style_cc(knob), apc.RING_PAN, channel=bank, force=True)
+                self.apc.ring_position(apc.device_ring_cc(knob), 63, channel=bank, force=True)
         self.apc.global_note(apc.NOTE_MASTER, apc.LED_ON, force=True)
         self.apc.global_note(apc.NOTE_SCENE1 + 4, apc.LED_ON, force=True)  # Scene 5
         self.set_knob_mode("pan")

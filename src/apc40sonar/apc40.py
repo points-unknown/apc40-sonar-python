@@ -320,15 +320,19 @@ class Apc40Output:
         else:
             self.note(0, note, velocity, force=force)
 
-    def ring_position(self, cc: int, value: int, *, force: bool = False) -> None:
-        """Set an LED-ring position (0-127) on *cc*."""
+    def ring_position(self, cc: int, value: int, *, channel: int = 0, force: bool = False) -> None:
+        """Set an LED-ring position (0-127) on *cc*.
 
-        self.cc(cc, value, force=force)
+        Device Control rings are stored per bank, so *channel* selects the
+        bank (0-8); Track Control rings are not banked and use channel 0.
+        """
 
-    def ring_style(self, cc: int, style: int, *, force: bool = False) -> None:
+        self.cc(cc, value, channel=channel, force=force)
+
+    def ring_style(self, cc: int, style: int, *, channel: int = 0, force: bool = False) -> None:
         """Set an LED-ring style (0 off, 1 single, 2 volume, 3 pan) on *cc*."""
 
-        self.cc(cc, style, force=force)
+        self.cc(cc, style, channel=channel, force=force)
 
     def clear_all(self) -> None:
         """Turn off every host-addressable LED and ring.

@@ -260,6 +260,13 @@ Master. The engine accepts them on any of channels 0-8 and treats the row as one
 global buttons. Their LEDs are stored per bank, so the renderer writes utility-row LEDs to
 all nine channels and they stay visible whichever bank is selected.
 
+The Device rings and knob positions are per bank too. The engine tracks the **current
+bank** from the channel of the latest Device knob or utility-row message, writes Device
+ring feedback to that bank's channel, and keeps a separate knob baseline per bank, so the
+position dump the APC40 sends on a bank switch matches that bank's last values instead of
+reading as knob movement. The startup baseline centers the Device rings on all nine
+banks.
+
 ### Track Selection in Generic Mode
 
 The Track Selection buttons send **no note** in Generic Mode. They are a local radio group:

@@ -1097,3 +1097,58 @@ def test_single_device_knob_turn_is_not_a_selection():
     settle(eng)
 
     assert rec.mcu_msgs == []
+
+
+# ---------------------------------------------------------------------------
+# Device Control banks: per-bank knob baselines and ring channel
+# ---------------------------------------------------------------------------
+
+
+def test_bank_switch_dump_is_not_read_as_device_knob_movement():
+    eng, rec, _ = make_engine()
+    eng.mixer = False
+
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 10))  # bank 0 baseline
+    eng.on_apc_message((0xB3, apc.CC_DEVICE_KNOB1, 12))  # bank 3's own value
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 10))  # back to bank 0
+
+    assert rec.mcu_msgs == []
+
+
+def test_device_knob_turn_is_relative_to_its_own_bank():
+    eng, rec, _ = make_engine()
+    eng.mixer = False
+
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 10))
+    eng.on_apc_message((0xB3, apc.CC_DEVICE_KNOB1, 50))
+    eng.on_apc_message((0xB3, apc.CC_DEVICE_KNOB1, 51))  # turn on bank 3
+
+    assert rec.mcu_msgs == [mcu.vpot_delta(1, 1)]
+
+
+def test_device_ring_feedback_goes_to_the_current_bank():
+    eng, rec, _ = make_engine()
+    eng.mixer = False
+    eng.on_apc_message((0xB5, apc.CC_DEVICE_KNOB1, 0))  # bank 5 is showing
+
+    eng.on_mcu_message((0xB0, mcu.CC_RING1, mcu.ring_byte(mcu.RING_MODE_VOLUME, 11)))
+
+    assert (0xB5, apc.device_ring_cc(1), 127) in rec.apc_msgs
+    assert (0xB5, apc.device_ring_style_cc(1), apc.RING_VOLUME) in rec.apc_msgs
+
+
+def test_utility_row_press_updates_the_current_bank():
+    eng, _, _ = make_engine()
+
+    eng.on_apc_message((0x98, apc.NOTE_UTIL_DETAIL_VIEW, 127))
+
+    assert eng.device_bank == 8
+
+
+def test_baseline_centers_device_rings_on_every_bank():
+    eng, rec, _ = make_engine()
+
+    eng.render_baseline()
+
+    for bank in range(apc.DEVICE_BANKS):
+        assert (0xB0 | bank, apc.device_ring_cc(1), 63) in rec.apc_msgs
