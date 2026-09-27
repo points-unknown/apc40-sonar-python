@@ -679,7 +679,12 @@ def test_up_down_still_send_cursor_keys_with_or_without_shift():
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
     eng.on_apc_message((0x90, apc.NOTE_DOWN, 127))
 
-    assert rec.mcu_msgs == click(mcu.NOTE_UP) + click(mcu.NOTE_DOWN)
+    # Cursor keys release with Note On velocity 0: Cakewalk auto-repeats them
+    # until it sees a release, and it drops real Note Offs.
+    assert rec.mcu_msgs == [
+        (0x90, mcu.NOTE_UP, 127), (0x90, mcu.NOTE_UP, 0),
+        (0x90, mcu.NOTE_DOWN, 127), (0x90, mcu.NOTE_DOWN, 0),
+    ]
 
 
 def test_bank_arrow_led_flashes_to_acknowledge():
@@ -805,3 +810,125 @@ def test_metronome_release_keeps_the_led_dark_when_loop_is_off():
     eng.on_apc_message((0x88, apc.NOTE_UTIL_METRONOME, 127))
 
     assert rec.apc_msgs == [(0x80 | bank, apc.NOTE_UTIL_METRONOME, 0) for bank in range(9)]
+
+
+# ---------------------------------------------------------------------------
+# Crossfader zoom
+# ---------------------------------------------------------------------------
+
+
+def cw_click(note):
+    """A click Cakewalk sees both edges of (release = Note On velocity 0)."""
+    return [(0x90, note, 127), (0x90, note, 0)]
+
+
+def fader(eng, value):
+    eng.on_apc_message((0xB0, apc.CC_CROSSFADER, value))
+
+
+def test_first_crossfader_reading_only_sets_the_baseline():
+    eng, rec, _ = make_engine()
+
+    fader(eng, 64)
+
+    assert rec.mcu_msgs == []
+
+
+def test_crossfader_right_enters_zoom_mode_and_zooms_in():
+    eng, rec, _ = make_engine(zoom_step_units=8)
+    fader(eng, 64)
+
+    fader(eng, 72)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_ZOOM) + cw_click(mcu.NOTE_RIGHT)
+
+
+def test_small_moves_accumulate_into_one_step():
+    eng, rec, _ = make_engine(zoom_step_units=8)
+    fader(eng, 64)
+
+    for value in (66, 68, 70):
+        fader(eng, value)
+    assert rec.mcu_msgs == []
+    fader(eng, 72)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_ZOOM) + cw_click(mcu.NOTE_RIGHT)
+
+
+def test_crossfader_left_zooms_out_without_reentering_zoom_mode():
+    eng, rec, _ = make_engine(zoom_step_units=8)
+    fader(eng, 64)
+
+    fader(eng, 56)
+    fader(eng, 48)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_ZOOM) + cw_click(mcu.NOTE_LEFT) * 2
+
+
+def test_zoom_mode_is_left_after_the_slider_goes_idle():
+    eng, rec, _ = make_engine(zoom_step_units=8, zoom_idle_frames=3)
+    fader(eng, 64)
+    fader(eng, 72)
+    rec.mcu_msgs.clear()
+
+    for _ in range(2):
+        eng.tick()
+    assert rec.mcu_msgs == []
+    eng.tick()
+
+    assert rec.mcu_msgs == click(mcu.NOTE_ZOOM)
+    for _ in range(5):
+        eng.tick()
+    assert rec.mcu_msgs == click(mcu.NOTE_ZOOM)  # only once
+
+
+def test_zoom_led_already_on_is_not_toggled_off_by_us():
+    # If the user turned zoom mode on themselves, the crossfader uses it and
+    # leaves it alone.
+    eng, rec, _ = make_engine(zoom_step_units=8, zoom_idle_frames=1)
+    eng.on_mcu_message((0x90, mcu.NOTE_ZOOM, 127))
+    fader(eng, 64)
+
+    fader(eng, 72)
+    eng.tick()
+    eng.tick()
+
+    assert rec.mcu_msgs == cw_click(mcu.NOTE_RIGHT)
+
+
+def test_crossfader_fully_left_fits_the_project_once():
+    eng, rec, _ = make_engine(zoom_step_units=100)  # no ordinary steps
+    fader(eng, 20)
+
+    fader(eng, 1)
+    fader(eng, 0)  # end-of-travel jitter: no second fit
+
+    fit = [
+        *click(mcu.NOTE_ZOOM),
+        (0x90, mcu.NOTE_M4, 127),
+        *cw_click(mcu.NOTE_RIGHT),
+        (0x90, mcu.NOTE_M4, 0),
+    ]
+    assert rec.mcu_msgs == fit
+
+
+def test_fit_rearms_after_the_slider_comes_back_up():
+    eng, rec, _ = make_engine(zoom_step_units=100)
+    fader(eng, 20)
+    fader(eng, 0)
+    fader(eng, 11)  # re-arm
+    rec.mcu_msgs.clear()
+
+    fader(eng, 0)
+
+    assert (0x90, mcu.NOTE_M4, 127) in rec.mcu_msgs
+
+
+def test_fast_sweep_is_capped():
+    eng, rec, _ = make_engine(zoom_step_units=2)
+    fader(eng, 20)
+
+    fader(eng, 120)
+
+    steps = [m for m in rec.mcu_msgs if m == (0x90, mcu.NOTE_RIGHT, 127)]
+    assert len(steps) == engine_mod.ZOOM_STEP_LIMIT

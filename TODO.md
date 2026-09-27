@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 116 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 126 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -122,26 +122,11 @@ Tasks:
 - [ ] Show which bank is active (e.g. briefly on the grid); Cakewalk does not report the
       strip offset over MCU, so it would have to be tracked locally
 - [x] Master fader (APC CC 14) -> MCU Pitch Bend ch 8 (done)
-- [ ] **Crossfader = horizontal zoom** (APC CC 15, absolute 0-127). All Mackie Control;
-      no keystrokes or mouse injection
-  - [ ] Verify in Cakewalk: with MCU Zoom (note 100) on, Left/Right arrows zoom
-        horizontally out/in (Cakewalk's MCU mode remaps some notes - note 89 is Loop, not
-        Click - so confirm Zoom and the arrows behave as standard), and which point it
-        zooms around
-  - [ ] Zoom steps: slider movement -> relative steps (modular delta like the knobs);
-        every N slider units (default ~8, tune so one full sweep covers the zoom range)
-        send one Right (zoom in) or Left (zoom out) arrow press
-  - [ ] Zoom mode handling: turn MCU Zoom on at the first movement, off after ~300 ms
-        without movement, so the arrows return to normal; track the Zoom LED feedback so
-        the app never toggles it the wrong way
-  - [ ] Fully left = fit: at value <= 1, send one **Mackie F2** press, which the preset
-        assigns to *Zoom to Fit Project Horizontally* (F1 is already *Metronome During
-        Record*). Re-arm once the slider returns above ~10 so end-of-travel jitter does
-        not repeat it. After a fit, moving right zooms in step by step, so slider position
-        roughly tracks zoom level
-  - [ ] Optional rate cap if a fast sweep makes the Track view stutter
-  - [ ] Settings in `.env` (e.g. `ZOOM_STEP_UNITS`, `ZOOM_IDLE_MS`); tests; update the
-        quick reference, GENERAL.md, and the F2 assignment in the setup guide
+- [x] **Crossfader = horizontal zoom** (APC CC 15), all Mackie Control (done): MCU Zoom
+      mode + Cursor Left/Right, auto on/off after `ZOOM_IDLE_MS`, following the Zoom LED;
+      one step per `ZOOM_STEP_UNITS`, capped at 4 per event; fully left = fit project via
+      Cakewalk's built-in Zoom + M4 + Right (no F2 preset assignment needed)
+  - [x] Verified on hardware; `ZOOM_STEP_UNITS` default tuned to 6
 - [ ] Rewind/Forward, Cycle, Punch/Drop, Nudge, Zoom, Scrub, Markers
 - [x] Bank Select arrows decided: Left/Right = bank, Shift + Left/Right = channel,
       Up/Down = Cakewalk arrow keys (done). In step-sequencer mode they will page steps

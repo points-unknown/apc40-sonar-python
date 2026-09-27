@@ -226,6 +226,8 @@ def _run(args: argparse.Namespace) -> int:
         meter_decay_frames=round(cfg.meter_decay_ms / 1000 / POLL_SECONDS),
         meter_settle_frames=round(0.5 / POLL_SECONDS),
         stop_double_frames=round(0.4 / POLL_SECONDS),
+        zoom_step_units=cfg.zoom_step_units,
+        zoom_idle_frames=round(cfg.zoom_idle_ms / 1000 / POLL_SECONDS),
     )
 
     try:

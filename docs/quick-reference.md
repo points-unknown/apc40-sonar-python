@@ -78,7 +78,7 @@ Planned: Send A/B/C each address their own send.
 | Control | Action | Status | Planned |
 |---|---|---|---|
 | **Master fader** | Master bus volume (set Cakewalk's Mackie *Master Fader* to Bus + Master bus; see setup guide) | **Live** | - |
-| **Crossfader** | - | `-` | Horizontal zoom: slide right = zoom in, left = zoom out; fully left = fit project (Mackie F2) |
+| **Crossfader** | **Horizontal zoom**: slide right = zoom in, left = zoom out (one step per ~6/127 of travel); **fully left = fit project**. Cakewalk's Track view needs keyboard focus | **Live** | - |
 | **Cue Level** | Move the playhead: one step per detent, clockwise = forward. Step size = the *Jog Wheel Resolution* in the Mackie Control preset (Measures by default) | **Live** | Shift + Cue Level for finer steps |
 | **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |
 

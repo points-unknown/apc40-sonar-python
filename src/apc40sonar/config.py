@@ -22,6 +22,8 @@ Recognized keys (all optional; defaults match the documented topology):
     KNOB_NOISE_THRESHOLD  steps above this are ignored  default: 4
     METERS            track level meters on the grid default: on
     METER_DECAY_MS    meter fall time per segment     default: 300
+    ZOOM_STEP_UNITS   crossfader travel per zoom step default: 6
+    ZOOM_IDLE_MS      leave Cakewalk zoom mode after  default: 300
 """
 
 from __future__ import annotations
@@ -42,6 +44,8 @@ DEFAULTS = {
     "KNOB_NOISE_THRESHOLD": "4",
     "METERS": "on",
     "METER_DECAY_MS": "300",
+    "ZOOM_STEP_UNITS": "6",
+    "ZOOM_IDLE_MS": "300",
 }
 
 TRUE_WORDS = frozenset({"1", "on", "true", "yes"})
@@ -61,6 +65,8 @@ class Config:
     knob_noise_threshold: int
     meters: bool = True
     meter_decay_ms: int = 300
+    zoom_step_units: int = 6
+    zoom_idle_ms: int = 300
     env_path: Path | None = None
 
 
@@ -167,5 +173,7 @@ def load_config(
         knob_noise_threshold=_as_int(values, "KNOB_NOISE_THRESHOLD", 4),
         meters=_as_bool(values, "METERS", True),
         meter_decay_ms=_as_int(values, "METER_DECAY_MS", 300),
+        zoom_step_units=_as_int(values, "ZOOM_STEP_UNITS", 6),
+        zoom_idle_ms=_as_int(values, "ZOOM_IDLE_MS", 300),
         env_path=resolved,
     )

@@ -67,6 +67,8 @@ Port names and options live in `.env` at the repository root (copy
 | `KNOB_NOISE_THRESHOLD` | `4` | Knob steps larger than this are ignored (0 disables) |
 | `METERS` | `on` | Track level meters on the clip grid and clip latch on Clip Stop (`on`/`off`) |
 | `METER_DECAY_MS` | `300` | Meter fall time per level, like a real MCU |
+| `ZOOM_STEP_UNITS` | `6` | Crossfader travel (0-127 scale) per zoom step; lower = faster zoom |
+| `ZOOM_IDLE_MS` | `300` | Leave Cakewalk's zoom mode this long after the crossfader stops |
 
 Lookup order for the file: the path in `APC40SONAR_ENV`, then `.env`, then `config/.env`.
 Process-environment values override the file, so a one-off run can use
@@ -106,6 +108,7 @@ Process-environment values override the file, so a one-off run can use
 | Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
 | Metronome (65, bank channel 0-8) | Note 89: Cakewalk's **Loop on/off** (see below) |
 | Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
+| Crossfader (CC 15, absolute) | Horizontal zoom via MCU Zoom 100 + Cursor Left/Right (see below) |
 | Cue Level (CC 47, relative) | Jog CC 60: one message per detent (max 4 per event), `0x01` forward / `0x41` back |
 | Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 + ring style |
 
@@ -123,6 +126,33 @@ metronome button**; the metronome is reached through an F-key (54-61) assigned t
 Cakewalk command on the surface page. The Cue Level jog moves the now time by the page's
 *Jog Wheel Resolution*; Cakewalk ignores the jog value's size, so each message is one
 step.
+
+**Cursor keys need a visible release.** Cakewalk auto-repeats a cursor key (Up/Down/
+Left/Right, 96-99) 0.4 s after the press and then every 50-500 ms until it sees the
+release. It drops real Note Offs, so the engine releases cursor keys with Note On
+velocity 0, like Loop; otherwise one Bank Select Up/Down press would keep repeating.
+
+### Crossfader zoom
+
+The crossfader zooms Cakewalk's timeline horizontally, entirely over Mackie Control:
+
+- With Cakewalk's **zoom mode** on (MCU Zoom, note 100), Cursor Left/Right become
+  Ctrl+Left / Ctrl+Right (zoom out / in) and Zoom + M4 + Right is *fit project to window*.
+  These are keystrokes Cakewalk sends to itself, so they act on the view that has
+  keyboard focus (the Track view).
+- The slider's movement is accumulated; every `ZOOM_STEP_UNITS` (default 6 of 0-127) is
+  one zoom step, right = in, left = out, at most 4 steps per message. The first reading
+  after startup only sets the baseline.
+- The engine turns zoom mode on at the first step and off again after `ZOOM_IDLE_MS`
+  (default 300 ms) without movement, so the arrow buttons return to normal. It follows
+  Cakewalk's Zoom LED: if zoom mode was already on (turned on some other way) the
+  crossfader uses it and leaves it on.
+- At the far left (value 0-1) it sends one *fit project* (Zoom + M4 + Right; M4 is
+  released with Note On velocity 0). It re-arms once the slider is
+  back above 10, so end-of-travel jitter does not repeat it. After a fit, moving right
+  zooms in step by step, so the slider position roughly tracks the zoom level.
+- No preset setting is needed (the earlier plan used an F2 assignment; Cakewalk's
+  built-in Zoom + M4 + Right replaces it).
 
 Cakewalk's master fader defaults to strip type *Master*, which is the hardware-output
 strip, not the project's Master **bus**. Set the surface's **Master Fader** group to

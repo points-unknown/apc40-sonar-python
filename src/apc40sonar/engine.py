@@ -92,7 +92,17 @@ METER_SEGMENTS = (
 METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
 
 # MCU buttons Cakewalk acts on at *release*: they need a release it can see.
-CAKEWALK_RELEASE_BUTTONS = frozenset({mcu.NOTE_CW_LOOP})
+# Loop toggles on release; the cursor keys auto-repeat (0.4 s, then every
+# 50-500 ms) until Cakewalk sees their release.
+CAKEWALK_RELEASE_BUTTONS = frozenset(
+    {mcu.NOTE_CW_LOOP, mcu.NOTE_UP, mcu.NOTE_DOWN, mcu.NOTE_LEFT, mcu.NOTE_RIGHT}
+)
+
+# Crossfader zoom: at or below this position the slider fits the project;
+# it re-arms once the slider is back above ZOOM_FIT_REARM.
+ZOOM_FIT_AT = 1
+ZOOM_FIT_REARM = 10
+ZOOM_STEP_LIMIT = 4  # max zoom steps per crossfader event
 
 # APC40 global buttons -> MCU notes (channel 0). Cakewalk treats the MCU
 # cursor buttons as keyboard arrow keys; Bank Left/Right moves the 8-strip
@@ -144,6 +154,8 @@ class Engine:
         meter_decay_frames: int = 15,
         meter_settle_frames: int = 25,
         stop_double_frames: int = 20,
+        zoom_step_units: int = 6,
+        zoom_idle_frames: int = 15,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -168,6 +180,10 @@ class Engine:
         self.meter_settle_frames = max(2, meter_settle_frames)
         # A second Stop press within this many frames also returns to the start.
         self.stop_double_frames = stop_double_frames
+        # Crossfader travel per zoom step, and how long after the last movement
+        # Cakewalk's zoom mode is switched back off.
+        self.zoom_step_units = max(1, zoom_step_units)
+        self.zoom_idle_frames = max(1, zoom_idle_frames)
 
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
@@ -187,6 +203,12 @@ class Engine:
         self._last_meter_frame: int | None = None
         self._meter_toggle: dict | None = None
         self._last_stop_frame: int | None = None
+        self._crossfader: int | None = None
+        self._zoom_accum = 0
+        self._zoom_mode = False  # Cakewalk's zoom mode, from its Zoom LED
+        self._zoom_owned = False  # True while we turned zoom mode on
+        self._zoom_last_frame = 0
+        self._zoom_fit_armed = True
 
     # ------------------------------------------------------------------
     # MCU output helpers
@@ -248,6 +270,11 @@ class Engine:
 
         # Cue Level (relative, channel not significant) -> jog: moves the now
         # time by Cakewalk's Jog Wheel Resolution per step.
+        # Crossfader (absolute, channel not significant) -> horizontal zoom.
+        if cc == apc.CC_CROSSFADER:
+            self._on_crossfader(value)
+            return
+
         if cc == apc.CC_CUE_LEVEL:
             delta = value - 128 if value > 63 else value
             for _ in range(min(abs(delta), CUE_JOG_STEP_LIMIT)):
@@ -395,6 +422,66 @@ class Engine:
         elif note == apc.NOTE_TAP_TEMPO:
             self._flash_global(apc.NOTE_TAP_TEMPO)
 
+    # ------------------------------------------------------------------
+    # Crossfader zoom
+    # ------------------------------------------------------------------
+
+    def _on_crossfader(self, value: int) -> None:
+        """Zoom Cakewalk horizontally: right = in, left = out, far left = fit.
+
+        Cakewalk's zoom mode turns the Left/Right cursor keys into Ctrl+Left /
+        Ctrl+Right (zoom out / in), and Zoom + M4 + Right into "fit project".
+        The engine enters zoom mode on the first movement and leaves it once
+        the slider has been idle (see :meth:`_zoom_idle`).
+        """
+
+        previous = self._crossfader
+        self._crossfader = value
+        if value > ZOOM_FIT_REARM:
+            self._zoom_fit_armed = True
+        if previous is None:
+            return  # first reading only sets the baseline
+
+        if value <= ZOOM_FIT_AT and self._zoom_fit_armed:
+            self._zoom_fit_armed = False
+            self._zoom_accum = 0
+            self._enter_zoom_mode()
+            self._send_mcu(mcu.button_press(mcu.NOTE_M4))
+            self._mcu_click(mcu.NOTE_RIGHT)
+            self._send_mcu(mcu.cakewalk_release(mcu.NOTE_M4))
+            return
+
+        self._zoom_accum += value - previous
+        steps = 0
+        units = self.zoom_step_units
+        while abs(self._zoom_accum) >= units and steps < ZOOM_STEP_LIMIT:
+            zoom_in = self._zoom_accum > 0
+            self._zoom_accum -= units if zoom_in else -units
+            self._enter_zoom_mode()
+            self._mcu_click(mcu.NOTE_RIGHT if zoom_in else mcu.NOTE_LEFT)
+            steps += 1
+        if steps == ZOOM_STEP_LIMIT:
+            self._zoom_accum = 0  # drop the excess of a very fast sweep
+
+    def _enter_zoom_mode(self) -> None:
+        self._zoom_last_frame = self._frame
+        if not self._zoom_mode:
+            self._mcu_click(mcu.NOTE_ZOOM)
+            self._zoom_mode = True  # Cakewalk's Zoom LED confirms shortly
+            self._zoom_owned = True
+
+    def _zoom_idle(self) -> None:
+        """Leave zoom mode once the crossfader has been still for a while."""
+
+        if not self._zoom_owned:
+            return
+        if self._frame - self._zoom_last_frame < self.zoom_idle_frames:
+            return
+        self._zoom_owned = False
+        if self._zoom_mode:
+            self._mcu_click(mcu.NOTE_ZOOM)
+            self._zoom_mode = False
+
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
 
@@ -474,6 +561,8 @@ class Engine:
             self.apc.global_note(apc.NOTE_STOP, on, force=True)
         elif note == mcu.NOTE_RECORD:
             self.apc.global_note(apc.NOTE_RECORD, on, force=True)
+        elif note == mcu.NOTE_ZOOM:
+            self._zoom_mode = state != "off"
         elif note == mcu.NOTE_CW_LOOP:
             self._loop_led = on
             self.apc.global_note(apc.NOTE_UTIL_METRONOME, on, force=True)
@@ -656,6 +745,7 @@ class Engine:
 
         self._frame += 1
         self._settle_meter_toggle()
+        self._zoom_idle()
         if self.meters:
             self._decay_meters()
         if not self._flashes:

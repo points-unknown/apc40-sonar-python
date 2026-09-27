@@ -143,3 +143,16 @@ def test_meters_default_on_and_accept_on_off_words(tmp_path, monkeypatch):
 
     env_file.write_text("METERS=maybe\n", encoding="utf-8")
     assert config.load_config(env_path=env_file).meters is True
+
+
+def test_zoom_settings_default_and_override(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    monkeypatch.delenv(config.ENV_VAR, raising=False)
+
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert (cfg.zoom_step_units, cfg.zoom_idle_ms) == (6, 300)
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("ZOOM_STEP_UNITS=4\nZOOM_IDLE_MS=500\n", encoding="utf-8")
+    cfg = config.load_config(env_path=env_file)
+    assert (cfg.zoom_step_units, cfg.zoom_idle_ms) == (4, 500)
