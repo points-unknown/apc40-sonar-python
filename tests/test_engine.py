@@ -242,16 +242,6 @@ def test_feedback_strip_led_on_then_off():
     ]
 
 
-def test_feedback_transport_and_loop_on_the_metronome_led():
-    eng, rec, _ = make_engine()
-
-    eng.on_mcu_message((0x90, mcu.NOTE_PLAY, 127))
-    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 127))
-
-    assert (0x90, apc.NOTE_PLAY, 127) in rec.apc_msgs
-    assert (0x90, apc.NOTE_UTIL_METRONOME, 127) in rec.apc_msgs
-
-
 def test_feedback_blink_velocity_renders_as_on():
     eng, rec, _ = make_engine()
     eng.on_mcu_message((0x90, mcu.NOTE_SOLO1, 1))  # blink
@@ -312,26 +302,6 @@ def test_stop_all_clips_sends_stop_and_flashes():
 
     eng.tick()
     assert (0x80, apc.NOTE_STOP, 0) in rec.apc_msgs
-
-
-def test_render_baseline_sets_master_scene5_and_pan_mode():
-    eng, rec, _ = make_engine()
-
-    eng.render_baseline()
-
-    assert (0x90, apc.NOTE_MASTER, 127) in rec.apc_msgs
-    assert (0x90, apc.NOTE_SCENE1 + 4, 127) in rec.apc_msgs
-    assert eng.knob_mode == "pan"
-
-    # clear_all() zeroes the device ring styles first, so assert the *final*
-    # value written per style CC rather than every intermediate message.
-    device_styles = {m[1]: m[2] for m in rec.apc_msgs if m[1] in range(24, 32)}
-    assert set(device_styles) == set(range(24, 32))
-    assert all(value == apc.RING_PAN for value in device_styles.values())
-
-    device_positions = {m[1]: m[2] for m in rec.apc_msgs if m[1] in range(16, 24)}
-    assert set(device_positions) == set(range(16, 24))
-    assert all(value == 63 for value in device_positions.values())
 
 
 # ---------------------------------------------------------------------------
@@ -515,19 +485,11 @@ def test_shift_is_tracked_and_sends_nothing():
     eng, rec, _ = make_engine()
 
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
-    assert eng.shift
+    assert eng.shift_state == "held"
     eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
-    assert not eng.shift
+    assert eng.shift_state == "once"  # a tap arms a one-shot
 
     assert rec.apc_msgs == []  # the APC40's Shift has no LED
-    assert rec.mcu_msgs == []
-
-
-def test_detail_view_without_shift_does_not_toggle_meters():
-    eng, rec, _ = make_engine()
-
-    eng.on_apc_message((0x90, apc.NOTE_UTIL_DETAIL_VIEW, 127))
-
     assert rec.mcu_msgs == []
 
 
@@ -602,16 +564,6 @@ def test_shift_detail_works_on_the_master_bank_channel():
     eng.on_apc_message((0x80, apc.NOTE_SHIFT, 127))
 
     assert rec.mcu_msgs == METER_STEP
-
-
-def test_metronome_button_loop_works_from_any_bank_channel():
-    eng, rec, _ = make_engine()
-
-    for bank in (0, 3, 8):
-        eng.on_apc_message((0x90 | bank, apc.NOTE_UTIL_METRONOME, 127))
-
-    click = [mcu.button_press(mcu.NOTE_CW_LOOP), mcu.cakewalk_release(mcu.NOTE_CW_LOOP)]
-    assert rec.mcu_msgs == click * 3
 
 
 def test_utility_notes_outside_the_banks_are_ignored():
@@ -704,16 +656,6 @@ def test_bank_arrow_led_flashes_to_acknowledge():
 # ---------------------------------------------------------------------------
 
 
-def test_metronome_button_toggles_cakewalk_loop_with_a_visible_release():
-    # Cakewalk toggles Loop on release and drops 0x80, so the release must be
-    # Note On velocity 0 (captured from hardware: 0x80 left loop unchanged).
-    eng, rec, _ = make_engine()
-
-    eng.on_apc_message((0x98, apc.NOTE_UTIL_METRONOME, 127))
-
-    assert rec.mcu_msgs == [(0x90, 89, 127), (0x90, 89, 0)]
-
-
 def test_shift_metronome_sends_f1_without_touching_the_loop_led():
     eng, rec, _ = make_engine()
 
@@ -771,47 +713,6 @@ def test_triple_stop_does_not_go_home_twice():
         eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
 
     assert rec.mcu_msgs.count(mcu.button_press(mcu.NOTE_CW_HOME)) == 1
-
-
-def test_cue_level_jogs_forward_and_back():
-    eng, rec, _ = make_engine()
-
-    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))  # +1
-    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 127))  # -1
-
-    assert rec.mcu_msgs == [(0xB0, mcu.CC_JOG, 0x01), (0xB0, mcu.CC_JOG, 0x41)]
-
-
-def test_fast_cue_turn_sends_several_capped_steps():
-    eng, rec, _ = make_engine()
-
-    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 3))
-    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 128 - 20))  # -20, capped
-
-    assert rec.mcu_msgs == [mcu.jog(True)] * 3 + [mcu.jog(False)] * engine_mod.CUE_JOG_STEP_LIMIT
-
-
-def test_metronome_release_reasserts_the_loop_led():
-    # During playback Cakewalk's loop LED can arrive while the button is still
-    # held; the APC40 then blanks its own LED on release. Re-send on release.
-    eng, rec, _ = make_engine()
-
-    eng.on_apc_message((0x98, apc.NOTE_UTIL_METRONOME, 127))
-    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 127))  # loop on, button still held
-    rec.apc_msgs.clear()
-    eng.on_apc_message((0x88, apc.NOTE_UTIL_METRONOME, 127))  # release
-
-    assert rec.apc_msgs == [(0x90 | bank, apc.NOTE_UTIL_METRONOME, 127) for bank in range(9)]
-
-
-def test_metronome_release_keeps_the_led_dark_when_loop_is_off():
-    eng, rec, _ = make_engine()
-
-    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 0))
-    rec.apc_msgs.clear()
-    eng.on_apc_message((0x88, apc.NOTE_UTIL_METRONOME, 127))
-
-    assert rec.apc_msgs == [(0x80 | bank, apc.NOTE_UTIL_METRONOME, 0) for bank in range(9)]
 
 
 # ---------------------------------------------------------------------------
@@ -1068,15 +969,6 @@ def test_pressing_the_same_track_again_selects_it_again():
     settle(eng)
 
     assert rec.mcu_msgs == click(mcu.NOTE_SELECT1 + 4) * 2
-
-
-def test_master_button_dump_selects_no_track():
-    eng, rec, _ = make_engine()
-
-    knob_dump(eng, 8)
-    settle(eng)
-
-    assert rec.mcu_msgs == []
 
 
 def test_whole_surface_dump_is_ignored():
@@ -1417,26 +1309,450 @@ def test_non_lcd_sysex_is_ignored():
 # ---------------------------------------------------------------------------
 
 
-def test_nudge_forwards_press_and_release_as_rewind_and_forward():
-    eng, rec, _ = make_engine()
+# ---------------------------------------------------------------------------
+# Playhead steps: Cue, Shift + Cue and Nudge sizes from .env
+# ---------------------------------------------------------------------------
+
+
+def jogs(forward, n, modifier=None):
+    """n jog messages, wrapped in a held Mackie modifier when given."""
+    body = [mcu.jog(forward)] * n
+    if modifier is None:
+        return body
+    return [mcu.button_press(modifier), *body, mcu.cakewalk_release(modifier)]
+
+
+def test_cue_moves_by_the_cue_step_with_its_unit_modifier():
+    eng, rec, _ = make_engine(cue_step=(1, "beat"))
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))  # +1 detent
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 127))  # -1 detent
+
+    assert rec.mcu_msgs == jogs(True, 1, mcu.NOTE_M2) + jogs(False, 1, mcu.NOTE_M2)
+
+
+def test_shift_cue_uses_the_fine_step():
+    eng, rec, _ = make_engine(shift_cue_step=(30, "tick"))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))
+
+    assert rec.mcu_msgs == jogs(True, 30, mcu.NOTE_M3)
+
+
+def test_jog_unit_uses_the_preset_resolution_without_a_modifier():
+    eng, rec, _ = make_engine(cue_step=(2, "jog"))
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))
+
+    assert rec.mcu_msgs == jogs(True, 2)
+
+
+def test_fast_cue_turn_is_capped_in_detents():
+    eng, rec, _ = make_engine(cue_step=(2, "measure"))
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 128 - 20))  # -20 detents
+
+    limit = engine_mod.CUE_JOG_STEP_LIMIT
+    assert rec.mcu_msgs == jogs(False, 2 * limit, mcu.NOTE_M1)
+
+
+def test_nudge_press_moves_one_nudge_step():
+    eng, rec, _ = make_engine(nudge_step=(1, "measure"))
 
     eng.on_apc_message((0x90, apc.NOTE_NUDGE_MINUS, 127))
     eng.on_apc_message((0x80, apc.NOTE_NUDGE_MINUS, 127))
     eng.on_apc_message((0x90, apc.NOTE_NUDGE_PLUS, 127))
     eng.on_apc_message((0x80, apc.NOTE_NUDGE_PLUS, 127))
 
-    # Release as Note On 0: Cakewalk keeps moving until it sees the release.
-    assert rec.mcu_msgs == [
-        (0x90, mcu.NOTE_REWIND, 127), (0x90, mcu.NOTE_REWIND, 0),
-        (0x90, mcu.NOTE_FORWARD, 127), (0x90, mcu.NOTE_FORWARD, 0),
-    ]
+    assert rec.mcu_msgs == jogs(False, 1, mcu.NOTE_M1) + jogs(True, 1, mcu.NOTE_M1)
 
 
-def test_nudge_held_sends_only_the_press_until_released():
-    eng, rec, _ = make_engine()
+def test_nudge_held_repeats_after_the_hold_delay():
+    eng, rec, _ = make_engine(nudge_step=(1, "beat"), nudge_hold_frames=3, nudge_repeat_frames=2)
 
     eng.on_apc_message((0x90, apc.NOTE_NUDGE_PLUS, 127))
+    for _ in range(2):
+        eng.tick()
+    assert rec.mcu_msgs == jogs(True, 1, mcu.NOTE_M2)  # still inside the hold delay
+
+    for _ in range(5):  # frames 3..7: repeats at 3, 5, 7
+        eng.tick()
+    assert rec.mcu_msgs == jogs(True, 1, mcu.NOTE_M2) * 4
+
+    eng.on_apc_message((0x80, apc.NOTE_NUDGE_PLUS, 127))
     for _ in range(10):
         eng.tick()
+    assert rec.mcu_msgs == jogs(True, 1, mcu.NOTE_M2) * 4  # stopped on release
 
-    assert rec.mcu_msgs == [(0x90, mcu.NOTE_FORWARD, 127)]
+
+# ---------------------------------------------------------------------------
+# Shift latching: hold / tap = one-shot / double-tap = lock
+# ---------------------------------------------------------------------------
+
+
+def shift_tap(eng):
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+
+
+def press(eng, note, channel=0):
+    eng.on_apc_message((0x90 | channel, note, 127))
+    eng.on_apc_message((0x80 | channel, note, 0))
+
+
+def test_held_shift_then_release_is_not_a_tap():
+    eng, _, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    press(eng, apc.NOTE_RIGHT)  # Shift + Right combo
+    eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
+
+    assert eng.shift_state == "off"
+
+
+def test_one_shot_shifts_the_next_button_then_clears():
+    eng, rec, _ = make_engine()
+    shift_tap(eng)
+
+    press(eng, apc.NOTE_RIGHT)  # shifted: channel right
+    press(eng, apc.NOTE_RIGHT)  # not shifted: bank right
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CHANNEL_RIGHT) + click(mcu.NOTE_BANK_RIGHT)
+    assert eng.shift_state == "off"
+
+
+def test_one_shot_is_used_up_by_a_button_without_a_shift_function():
+    eng, rec, _ = make_engine()
+    shift_tap(eng)
+
+    press(eng, apc.NOTE_PLAY)  # no Shift combo: normal Play, one-shot gone
+    press(eng, apc.NOTE_RIGHT)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_PLAY) + click(mcu.NOTE_BANK_RIGHT)
+
+
+def test_one_shot_expires():
+    eng, _, _ = make_engine(shift_oneshot_frames=5)
+    shift_tap(eng)
+
+    for _ in range(4):
+        eng.tick()
+    assert eng.shift_state == "once"
+    eng.tick()
+    assert eng.shift_state == "off"
+
+
+def test_double_tap_locks_until_the_next_tap():
+    eng, rec, _ = make_engine(shift_double_frames=10)
+    shift_tap(eng)
+    eng.tick()
+    shift_tap(eng)
+    assert eng.shift_state == "locked"
+
+    press(eng, apc.NOTE_RIGHT)
+    press(eng, apc.NOTE_RIGHT)
+    assert rec.mcu_msgs == click(mcu.NOTE_CHANNEL_RIGHT) * 2
+    for _ in range(500):
+        eng.tick()
+    assert eng.shift_state == "locked"  # no expiry when locked
+
+    shift_tap(eng)
+    assert eng.shift_state == "off"
+
+
+def test_slow_second_tap_cancels_the_one_shot():
+    eng, _, _ = make_engine(shift_double_frames=3)
+    shift_tap(eng)
+    for _ in range(5):
+        eng.tick()
+
+    shift_tap(eng)
+
+    assert eng.shift_state == "off"
+
+
+def test_one_shot_does_not_apply_to_the_cue_knob():
+    eng, rec, _ = make_engine(cue_step=(1, "beat"), shift_cue_step=(30, "tick"))
+    shift_tap(eng)
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))
+
+    assert rec.mcu_msgs == jogs(True, 1, mcu.NOTE_M2)  # coarse step
+    assert eng.shift_state == "once"  # still armed for a button
+
+
+def test_locked_shift_applies_to_the_cue_knob():
+    eng, rec, _ = make_engine(shift_cue_step=(30, "tick"), shift_double_frames=10)
+    shift_tap(eng)
+    shift_tap(eng)
+
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))
+
+    assert rec.mcu_msgs == jogs(True, 30, mcu.NOTE_M3)
+
+
+def test_hud_snapshot_reports_the_shift_state():
+    eng, _, _ = make_engine()
+    shift_tap(eng)
+
+    snap = eng.hud_snapshot()
+
+    assert snap.shift and snap.shift_state == "once"
+
+
+# ---------------------------------------------------------------------------
+# Modes (Scene buttons), Tracking utility row, Master = Tracks / Buses
+# ---------------------------------------------------------------------------
+
+
+def cw_press(note):
+    """A Cakewalk button that needs a visible release (Note On 0)."""
+    return [(0x90, note, 127), (0x90, note, 0)]
+
+
+def with_mod(modifier, note):
+    return [mcu.button_press(modifier), *click(note), mcu.cakewalk_release(modifier)]
+
+
+def nav(nav_note, inner):
+    """Enter a navigation mode, run *inner*, press it again to leave."""
+    return [*click(nav_note), *inner, *click(nav_note)]
+
+
+def test_render_baseline_starts_in_tracking_with_scene_1_lit():
+    eng, rec, _ = make_engine()
+
+    eng.render_baseline()
+
+    assert eng.mode == "tracking"
+    assert eng.knob_mode == "pan"
+    assert (0x90, apc.NOTE_SCENE1, 127) in rec.apc_msgs
+    for scene in apc.SCENE_NOTES[1:]:
+        assert rec.apc_msgs[-1] != (0x90, scene, 127)
+    assert (0x90, apc.NOTE_MASTER, 127) not in rec.apc_msgs  # the APC40 owns Master's LED
+
+    device_styles = {m[1]: m[2] for m in rec.apc_msgs if m[1] in range(24, 32)}
+    assert set(device_styles) == set(range(24, 32))
+    assert all(value == apc.RING_PAN for value in device_styles.values())
+
+
+def test_scene_buttons_select_the_mode_and_light_one_scene():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SCENE1 + 2, 127))  # Scene 3 = Mixing
+    assert eng.mode == "mixing"
+    lit = {m[1] for m in rec.apc_msgs if m[0] == 0x90 and m[1] in apc.SCENE_NOTES}
+    assert lit == {apc.NOTE_SCENE1 + 2}
+
+    eng.on_apc_message((0x90, apc.NOTE_SCENE1, 127))  # Scene 1 = Tracking
+    assert eng.mode == "tracking"
+
+
+def test_step_sequencer_scene_is_not_built_yet():
+    eng, _, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_SCENE1 + 1, 127))
+
+    assert eng.mode == "tracking"
+    assert any("not built" in text for _, text in eng.hud_snapshot().toasts)
+
+
+def test_scene_release_reasserts_the_mode_led():
+    eng, rec, _ = make_engine()
+    rec.apc_msgs.clear()
+
+    eng.on_apc_message((0x80, apc.NOTE_SCENE1 + 3, 127))  # the APC40 blanks it
+
+    assert (0x90, apc.NOTE_SCENE1, 127) in rec.apc_msgs
+
+
+def test_rec_quantize_toggles_loop_with_a_visible_release():
+    eng, rec, _ = make_engine()
+
+    for bank in (0, 8):
+        press(eng, apc.NOTE_UTIL_REC_QUANT, channel=bank)
+
+    assert rec.mcu_msgs == cw_press(mcu.NOTE_CW_LOOP) * 2
+
+
+def test_loop_feedback_lights_rec_quantize_and_is_reasserted_on_release():
+    eng, rec, _ = make_engine()
+
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_LOOP, 127))
+    assert (0x90, apc.NOTE_UTIL_REC_QUANT, 127) in rec.apc_msgs
+    rec.apc_msgs.clear()
+
+    eng.on_apc_message((0x88, apc.NOTE_UTIL_REC_QUANT, 127))  # release on the Master bank
+
+    assert rec.apc_msgs == [(0x90 | bank, apc.NOTE_UTIL_REC_QUANT, 127) for bank in range(9)]
+
+
+def test_metronome_button_is_auto_punch_and_shift_is_the_metronome():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_UTIL_METRONOME)
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    press(eng, apc.NOTE_UTIL_METRONOME)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_F2) + click(mcu.NOTE_F1)
+
+
+def test_undo_and_redo():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_UTIL_CLIP_TRACK)
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    press(eng, apc.NOTE_UTIL_CLIP_TRACK)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) + click(mcu.NOTE_CW_REDO)
+
+
+def test_insert_marker():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_UTIL_DEVICE_ONOFF)
+
+    assert rec.mcu_msgs == with_mod(mcu.NOTE_M1, mcu.NOTE_CW_MARKER)
+
+
+def test_arrows_jump_between_markers_and_return_to_normal_navigation():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_UTIL_LEFT_ARROW)
+    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+
+    assert rec.mcu_msgs == (
+        nav(mcu.NOTE_CW_MARKER, cw_press(mcu.NOTE_REWIND))
+        + nav(mcu.NOTE_CW_MARKER, cw_press(mcu.NOTE_FORWARD))
+    )
+
+
+def test_marker_navigation_already_on_is_not_toggled_off_first():
+    eng, rec, _ = make_engine()
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_MARKER, 127))  # Cakewalk already in marker nav
+
+    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+
+    assert rec.mcu_msgs == [*cw_press(mcu.NOTE_FORWARD), *click(mcu.NOTE_CW_MARKER)]
+
+
+def test_shift_arrows_go_to_selection_start_and_end():
+    eng, rec, _ = make_engine()
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+
+    press(eng, apc.NOTE_UTIL_LEFT_ARROW)
+    press(eng, apc.NOTE_UTIL_RIGHT_ARROW)
+
+    assert rec.mcu_msgs == (
+        nav(mcu.NOTE_CW_SELECT_NAV, cw_press(mcu.NOTE_REWIND))
+        + nav(mcu.NOTE_CW_SELECT_NAV, cw_press(mcu.NOTE_FORWARD))
+    )
+
+
+def test_loop_and_punch_from_selection():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_UTIL_DETAIL_VIEW)
+    press(eng, apc.NOTE_UTIL_OVERDUB)
+
+    assert rec.mcu_msgs == (
+        with_mod(mcu.NOTE_M2, mcu.NOTE_CW_LOOP_NAV) + with_mod(mcu.NOTE_M2, mcu.NOTE_CW_PUNCH_NAV)
+    )
+
+
+def test_shift_nudge_sets_selection_start_and_end():
+    eng, rec, _ = make_engine()
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+
+    press(eng, apc.NOTE_NUDGE_MINUS)
+    press(eng, apc.NOTE_NUDGE_PLUS)
+
+    def edge(button):
+        return nav(mcu.NOTE_CW_SELECT_NAV, [
+            mcu.button_press(mcu.NOTE_M1), *cw_press(button), mcu.cakewalk_release(mcu.NOTE_M1),
+        ])
+
+    assert rec.mcu_msgs == edge(mcu.NOTE_REWIND) + edge(mcu.NOTE_FORWARD)
+
+
+def test_mixing_mode_reserves_58_to_61_but_keeps_the_rest():
+    eng, rec, _ = make_engine()
+    eng.set_mode("mixing")
+
+    for note in (apc.NOTE_UTIL_CLIP_TRACK, apc.NOTE_UTIL_DEVICE_ONOFF,
+                 apc.NOTE_UTIL_LEFT_ARROW, apc.NOTE_UTIL_RIGHT_ARROW):
+        press(eng, note)
+    assert rec.mcu_msgs == []
+
+    press(eng, apc.NOTE_UTIL_REC_QUANT)  # loop still works
+    assert rec.mcu_msgs == cw_press(mcu.NOTE_CW_LOOP)
+
+
+def test_master_note_toggles_tracks_and_buses():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_MASTER)
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
+    eng.on_mcu_message((0x90, mcu.NOTE_CW_AUX, 127))  # Cakewalk confirms buses
+
+    press(eng, apc.NOTE_MASTER)
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX) + click(mcu.NOTE_CW_TRACK)
+
+
+def test_master_bank_dump_toggles_strips_when_no_master_note_arrived():
+    eng, rec, _ = make_engine()
+
+    knob_dump(eng, 8)
+    settle(eng)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
+
+
+def test_master_note_and_its_dump_toggle_only_once():
+    eng, rec, _ = make_engine()
+
+    press(eng, apc.NOTE_MASTER)
+    knob_dump(eng, 8)
+    settle(eng)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
+
+
+def test_hud_snapshot_reports_mode_and_buses():
+    eng, _, _ = make_engine()
+    eng.set_mode("mixing")
+    press(eng, apc.NOTE_MASTER)
+
+    snap = eng.hud_snapshot()
+
+    assert snap.mode == "mixing" and snap.buses
+
+
+def test_jog_budget_caps_messages_per_frame():
+    # A fast spin with a fine step must not flood the loopMIDI cable.
+    eng, rec, _ = make_engine(shift_cue_step=(40, "tick"))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+
+    for _ in range(5):
+        eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 4))  # 4 detents x 40 ticks each
+    jogs_sent = [m for m in rec.mcu_msgs if m[1] == mcu.CC_JOG]
+    assert len(jogs_sent) == engine_mod.JOG_BUDGET_PER_FRAME
+
+    eng.tick()  # new frame, new budget
+    eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 1))
+    jogs_sent = [m for m in rec.mcu_msgs if m[1] == mcu.CC_JOG]
+    assert len(jogs_sent) == engine_mod.JOG_BUDGET_PER_FRAME + 40
+
+
+def test_modifier_is_always_released_even_when_capped():
+    eng, rec, _ = make_engine(shift_cue_step=(40, "tick"))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+
+    for _ in range(3):
+        eng.on_apc_message((0xB0, apc.CC_CUE_LEVEL, 4))
+
+    presses = rec.mcu_msgs.count(mcu.button_press(mcu.NOTE_M3))
+    releases = rec.mcu_msgs.count(mcu.cakewalk_release(mcu.NOTE_M3))
+    assert presses == releases
+

@@ -23,10 +23,10 @@ panel.
 |---|---|---|---|---|---|
 | **Knob mode** | Pan, Send A, Send B, Send C | Pan / Send A / Send B / Send C buttons | Lit mode button; ring style (pan vs. fill) | Pan | Track Control knobs + rings |
 | **Grid mode** | Meters, Pads | `METERS=on/off` in `.env` (restart) | Grid shows meters or stays dark | Meters | Clip grid, Clip Stop LEDs |
-| **Shift layer** | Held / released | Hold **Shift** | HUD `SHIFT` badge (the APC40's Shift has no LED) | Released | Buttons that have a Shift combo |
+| **Shift layer** | Off / held / one-shot / locked | Hold, tap, or double-tap **Shift** (see Shift combos) | HUD badge `SHIFT` / `SHIFT 1x` / `SHIFT LOCK` (the APC40's Shift has no LED) | Off | Buttons that have a Shift combo; Shift + Cue Level |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
-| *Knob target* (planned) | Mix, Device | Not built | - | Mix | Which knob bank drives the MCU V-pots |
-| *Grid modes* (planned) | Meters, step sequencer, drum pads, clip launch | Scene 1-5 (Scene 1 = meters, Scene 2 = sequencer) | Lit Scene LED | Meters | Clip grid, Clip Stop row, Bank Select arrows (sequencer) |
+| **Mode** | **Tracking**, *Step Sequencer* (not built), **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row) |
+| **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips (faders, buttons, knobs, meters) control |
 
 ## Track strips (x8, one per Cakewalk track in the current bank)
 
@@ -47,7 +47,7 @@ opposite of Ableton, where lit means active.
 | Control | Meters mode (default) | Pads mode (`METERS=off`) | Planned |
 |---|---|---|---|
 | **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Step sequencer (5 lanes x 8 steps, tap cycles velocity color), drum pads, clip launch |
-| **Scene 1-5** | *Provisional:* lights its LED, no action (Scene 5 lit at startup) | Same | Grid-mode select (Scene 1 meters, Scene 2 step sequencer, 3-5 reserved) |
+| **Scene 1 / 2 / 3** | **Mode:** 1 = Tracking, 2 = Step Sequencer (*not built yet*), 3 = Mixing. The active mode's Scene LED is lit | Same | Scenes 4-5: free |
 | **Stop All Clips** | Transport Stop + clears all clip latches + flashes Stop and Clip Stop LEDs | Stop + flash | - |
 
 Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.
@@ -81,7 +81,7 @@ last send.
 |---|---|---|---|
 | **Master fader** | Master bus volume (set Cakewalk's Mackie *Master Fader* to Bus + Master bus; see setup guide) | **Live** | - |
 | **Crossfader** | **Horizontal zoom**: slide right = zoom in, left = zoom out (one step per ~6/127 of travel); **fully left = fit project**. Cakewalk's Track view needs keyboard focus | **Live** | - |
-| **Cue Level** | Move the playhead: one step per detent, clockwise = forward. Step size = the *Jog Wheel Resolution* in the Mackie Control preset (Measures by default) | **Live** | Shift + Cue Level for finer steps |
+| **Cue Level** | Move the playhead, clockwise = forward: **1 beat** per detent (`CUE_STEP`). **Shift + Cue Level** = fine: **30 ticks** (1/32 of a beat) per detent (`SHIFT_CUE_STEP`) | **Live** | - |
 | **Footswitch 1 / 2** | - | `-` | e.g. Play/Stop and Record |
 
 ## Knob mode buttons
@@ -93,18 +93,22 @@ last send.
 
 ## Utility row (under the Device Control knobs)
 
-These buttons work, and their LEDs show, whichever track (or Master) is selected.
+These buttons work, and their LEDs show, whichever track (or Master) is selected. The
+row groups **Loop** (62-63) and **Punch** (64-65): the "from selection" setter next to its
+on/off toggle.
 
-| Button | Action | Shift + button | LED | Status | Planned |
-|---|---|---|---|---|---|
-| **Clip/Track** | - | - | - | `-` | Track/clip context for the Track Control knobs |
-| **Device On/Off** | - | - | - | `-` | Focused plug-in bypass, LED shows state |
-| **Left arrow** | - | - | - | `-` | Device knob page / parameter bank |
-| **Right arrow** | - | - | - | `-` | Device knob page / parameter bank |
-| **Detail View** | - | **Toggle Cakewalk meters** on/off | Flashes on toggle | **Live** (Shift only) | Local view toggle or keystroke |
-| **Rec Quantize** | - | - | - | `-` | Keystroke `Ctrl+Alt+R` with flash |
-| **MIDI Overdub** | - | - | - | `-` | Keystroke `Ctrl+Alt+O`, LED from feedback |
-| **Metronome** | **Loop on/off** (Cakewalk's transport loop: playback repeats between the loop markers) | **Metronome during record on/off** (needs F1 in the Mackie Control preset) | Lit while **loop** is on, from Cakewalk. The metronome has no LED | **Live** | - |
+| Button | Tracking (Scene 1) | Mixing (Scene 3) | Shift + button (both modes) | LED |
+|---|---|---|---|---|
+| **Clip/Track** (58) | **Undo** | *Reserved for plug-in control (C4)* | Tracking: **Redo** | - |
+| **Device On/Off** (59) | **Insert marker** at the playhead | *Reserved (C4)* | - | - |
+| **Left / Right arrow** (60/61) | **Previous / next marker** | *Reserved (C4)* | Tracking: **go to selection start / end** | - |
+| **Detail View** (62) | **Loop <- selection**: loop points = the current selection | Same | **Cakewalk meters on/off** | Flashes on the meters toggle |
+| **Rec Quantize** (63) | **Loop on/off** (playback repeats between the loop points) | Same | - | **Lit while loop is on**, from Cakewalk |
+| **MIDI Overdub** (64) | **Punch <- selection**: punch points = the current selection | Same | - | - |
+| **Metronome** (65) | **Auto-punch on/off** (Mackie F2 in the preset) | Same | **Metronome during record on/off** (Mackie F1) | None: Cakewalk reports neither state |
+
+Set the selection with **Shift + Nudge - / +** (selection start / end = playhead), then
+use Loop <- selection or Punch <- selection.
 
 ## Transport and navigation
 
@@ -116,21 +120,33 @@ These buttons work, and their LEDs show, whichever track (or Master) is selected
 | **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...) | Flashes on press | **Live** | Page steps in the step sequencer |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
 | **Bank Select Up / Down** | Cakewalk arrow key Up / Down | - | **Live** | Page lanes in the step sequencer |
-| **Shift** | Modifier (hold) | No LED on the APC40; shown in the HUD | **Live** | Tap = one-shot, double-tap = lock (see TODO) |
+| **Shift** | Modifier: hold, tap (one-shot) or double-tap (lock); see Shift combos | No LED on the APC40; shown in the HUD | **Live** | - |
 | **Tap Tempo** | - (LED flash only) | Flash | *Provisional* | Tap tempo keystroke (needs keystroke bridge) |
-| **Nudge - / +** | **Rewind / Fast Forward** by the Mackie preset's *Transport Resolution* (Measures). Tap = one step; **hold = keeps moving** until released | - | **Live** | Shift + Nudge = selection start / end |
-| **Master** (Track Selection) | - (LED stays lit) | Lit | *Provisional* | Toggle the 8 strips between Tracks and Buses |
+| **Nudge - / +** | Move the playhead back / forward **1 measure** per press (`NUDGE_STEP`); **hold** to keep moving (repeats every `NUDGE_REPEAT_MS` after 0.4 s) | - | **Live** | - |
+| **Shift + Nudge - / +** | **Selection start / end = playhead** | - | **Live** | - |
+| **Master** (Track Selection) | **Toggle the 8 strips between Tracks and Buses** (faders, strip buttons, knobs, meters and Track Selection then act on buses) | The APC40 lights it itself (Track Selection radio group); the HUD shows `Buses` | **Live** | - |
 
 ## Shift combos
 
-Hold **Shift** and press the second button. Buttons without a combo do their normal
-action while Shift is held.
+Three ways to use **Shift**:
+
+| You do | Effect | HUD |
+|---|---|---|
+| **Hold** Shift and press a button | That press is shifted | `SHIFT` |
+| **Tap** Shift | The **next button press** is shifted, then Shift turns off. Any button uses it up, even one without a Shift combo. Expires after 3 s (`SHIFT_ONESHOT_MS`) | `SHIFT 1x` |
+| **Double-tap** Shift (within 0.4 s) | **Locked**: every button press is shifted until you tap Shift again | `SHIFT LOCK` |
+
+Knobs (Shift + Cue Level) follow a **held or locked** Shift only; a tapped one-shot waits
+for a button. Buttons without a combo do their normal action while shifted.
 
 | Combo | Action | Status |
 |---|---|---|
 | **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by 1 track | **Live** |
 | **Shift + Metronome** | Metronome **during record** on/off (sends Mackie F1; the preset assigns F1 to *Metronome During Record*) | **Live** |
+| **Shift + Clip/Track** | Redo (Tracking) | **Live** |
+| **Shift + Left / Right arrow** | Go to selection start / end (Tracking) | **Live** |
+| **Shift + Nudge - / +** | Selection start / end = playhead | **Live** |
 
 Planned combos from [`TODO.md`](../TODO.md): Shift + Mute = clear all mutes,
 Shift + Scene = record-enable scene, other alternate strip actions.
@@ -144,18 +160,32 @@ off with `--no-hud` or `HUD=off` in `.env`. Settings (`HUD_POSITION`,
 | Area | Shows |
 |---|---|
 | Mode (large, colored) | `PAN` (amber), `SEND A (1)` (cyan), `SEND B (2)` (violet), `SEND C (3)` (green) |
-| `Trk 9-16` | Tracks on the 8 strips. `Trk ?` until the first Track Selection press; `Trk ~17-24` = estimated after Bank/Channel moves, confirmed by the next select |
+| `Tracking \| Trk 9-16` | Mode, then the tracks on the 8 strips (`Buses` when Master switched them to buses). `Trk ?` until the first Track Selection press; `Trk ~17-24` = estimated after Bank/Channel moves, confirmed by the next select |
 | `Sel 12 Vocals` | Selected track number and name |
 | Transport | `STOP` / `PLAY` / `REC`, from Cakewalk |
 | Time | Bars.beats.ticks (or SMPTE), from Cakewalk |
 | `Assign SE` | Cakewalk's assignment display (`PN` = pan, `SE` = sends) |
-| Badges | **LOOP**, **ZOOM** (crossfader zoom mode), **METERS** (Cakewalk meters on), **SHIFT** (held); dim = off |
+| Badges | **LOOP**, **ZOOM** (crossfader zoom mode), **METERS** (Cakewalk meters on), **SHIFT** / **SHIFT 1x** / **SHIFT LOCK** (held / one-shot / locked); dim = off |
 | Toast (right) | ~1 s message for each action: `Send B`, `Bank >`, `Channel <`, `Go to start`, `Stop all`, `Zoom: fit project`, `Cakewalk meters on`, `Metronome (rec) toggled`, and Cakewalk's `Track 12: "Vocals"` |
 | Status line | `no link to apc40sonar` (app not running), `Cakewalk idle` (no feedback lately), red `Strip layout!` (Cakewalk flipped the knobs to one track) |
 | Strips (expanded layout) | Per strip: name (a knob's value briefly replaces it, in white), param label or value, R/S/M dots, level meter with clip mark; selected strip highlighted |
 
 Mouse: drag to move; right-click for Compact / Expanded, Opacity, Quit HUD. Clicking it
 never takes keyboard focus from Cakewalk.
+
+## Playhead step sizes
+
+Set in `.env` as `<count> <unit>`, unit = `measure`, `beat`, `tick` (1/960 beat) or
+`jog` (the Mackie preset's *Jog Wheel Resolution*). Measure and beat steps land on the
+grid. The count is 1-48: each unit is one MIDI message, and bigger values
+(or spinning very fast) could flood the loopMIDI cable.
+
+| Key | Control | Default |
+|---|---|---|
+| `CUE_STEP` | Cue Level, per detent | `1 beat` |
+| `SHIFT_CUE_STEP` | Shift + Cue Level, per detent | `30 tick` (1/32 beat) |
+| `NUDGE_STEP` | Nudge - / +, per press and per repeat while held | `1 measure` |
+| `NUDGE_REPEAT_MS` | Repeat interval while Nudge is held | `150` |
 
 ## Exit
 
@@ -168,5 +198,5 @@ After the lightshow the panel rests in:
 
 - Knob mode **Pan**, Pan button lit, Track Control rings centered
 - Device Control rings centered (pan style)
-- **Master** and **Scene 5** lit
+- **Tracking** mode, **Scene 1** lit; strips on Tracks
 - Grid dark until Cakewalk sends meters or LED state

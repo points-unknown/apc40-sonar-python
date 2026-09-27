@@ -38,9 +38,10 @@ def test_mode_labels_and_colors():
 
 
 def test_bank_label():
-    assert hv.bank_label(HudSnapshot()) == "Trk ?"
-    assert hv.bank_label(HudSnapshot(bank_offset=8, bank_exact=True)) == "Trk 9-16"
-    assert hv.bank_label(HudSnapshot(bank_offset=9, bank_exact=False)) == "Trk ~10-17"
+    assert hv.bank_label(HudSnapshot()) == "Tracking | Trk ?"
+    assert hv.bank_label(HudSnapshot(bank_offset=8, bank_exact=True)) == "Tracking | Trk 9-16"
+    assert hv.bank_label(HudSnapshot(bank_offset=9, bank_exact=False)) == "Tracking | Trk ~10-17"
+    assert hv.bank_label(HudSnapshot(mode="mixing", buses=True)) == "Mixing | Buses"
 
 
 def test_selection_label():
@@ -142,3 +143,10 @@ def test_place_window_corners_and_xy():
     assert hv.place_window("bottom-left", area, (400, 80)) == (12, 1040 - 80 - 12)
     # x,y is relative to the chosen monitor.
     assert hv.place_window("100,40", (1920, 0, 3840, 1040), (400, 80)) == (2020, 40)
+
+
+def test_shift_badge_text_follows_the_shift_state():
+    for state, text in (("held", "SHIFT"), ("once", "SHIFT 1x"), ("locked", "SHIFT LOCK")):
+        view = hv.build_view(HudSnapshot(shift=True, shift_state=state), {}, linked=True)
+        assert view.shift_text == text
+

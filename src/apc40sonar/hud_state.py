@@ -37,6 +37,9 @@ class HudSnapshot:
     knob_mode: str = "pan"
     mixer: bool = True
     shift: bool = False
+    shift_state: str = "off"  # "off" / "held" / "once" / "locked"
+    mode: str = "tracking"  # "tracking" / "sequencer" / "mixing"
+    buses: bool = False  # strips show buses instead of tracks
     transport: str = "stop"  # "stop" / "play" / "record"
     loop: bool = False
     zoom: bool = False

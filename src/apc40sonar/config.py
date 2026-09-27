@@ -34,6 +34,15 @@ Recognized keys (all optional; defaults match the documented topology):
     HUD_LAYOUT        compact / expanded              default: compact
     HUD_TOAST_MS      toast duration                  default: 1200
     HUD_LCD           capture Cakewalk's MCU displays default: on
+    CUE_STEP          playhead move per Cue detent     default: 1 beat
+    SHIFT_CUE_STEP    ... per detent with Shift held   default: 30 tick
+    NUDGE_STEP        playhead move per Nudge press    default: 1 measure
+    NUDGE_REPEAT_MS   repeat interval while Nudge held default: 150
+    SHIFT_ONESHOT_MS  tapped Shift expires after       default: 3000
+
+Playhead steps are ``<count> <unit>``: unit ``measure``, ``beat``, ``tick``
+(1/960 beat at Cakewalk's default resolution) or ``jog`` (the Mackie preset's
+Jog Wheel Resolution). Measure and beat steps snap to the grid.
 """
 
 from __future__ import annotations
@@ -66,7 +75,17 @@ DEFAULTS = {
     "HUD_LAYOUT": "compact",
     "HUD_TOAST_MS": "1200",
     "HUD_LCD": "on",
+    "CUE_STEP": "1 beat",
+    "SHIFT_CUE_STEP": "30 tick",
+    "NUDGE_STEP": "1 measure",
+    "NUDGE_REPEAT_MS": "150",
+    "SHIFT_ONESHOT_MS": "3000",
 }
+
+STEP_UNITS = ("measure", "beat", "tick", "jog")
+# Each unit is one MIDI message (Cakewalk moves 1 tick per jog), so a large count
+# floods the loopMIDI cable; loopMIDI's flood protection then disables it.
+STEP_COUNT_MAX = 48
 
 HUD_LAYOUTS = ("compact", "expanded")
 
@@ -99,6 +118,11 @@ class Config:
     hud_layout: str = "compact"
     hud_toast_ms: int = 1200
     hud_lcd: bool = True
+    cue_step: tuple[int, str] = (1, "beat")
+    shift_cue_step: tuple[int, str] = (30, "tick")
+    nudge_step: tuple[int, str] = (1, "measure")
+    nudge_repeat_ms: int = 150
+    shift_oneshot_ms: int = 3000
     env_path: Path | None = None
 
 
@@ -172,6 +196,38 @@ def _as_choice(values: dict[str, str], key: str, choices: tuple[str, ...], defau
     return text if text in choices else default
 
 
+def parse_step(text: str) -> tuple[int, str] | None:
+    """Parse a playhead step such as ``"1 beat"``, ``"30 ticks"`` or ``"measure"``.
+
+    Returns ``(count, unit)`` or ``None`` when the text is not a valid step.
+    """
+
+    parts = text.strip().lower().split()
+    if len(parts) == 1:
+        parts = ["1", parts[0]]
+    if len(parts) != 2:
+        return None
+    count_text, unit = parts
+    unit = unit[:-1] if unit.endswith("s") else unit
+    try:
+        count = int(count_text)
+    except ValueError:
+        return None
+    if unit not in STEP_UNITS or not 1 <= count <= STEP_COUNT_MAX:
+        return None
+    return count, unit
+
+
+def _as_step(values: dict[str, str], key: str, default: str) -> tuple[int, str]:
+    """Parse a playhead step setting, falling back to *default*."""
+
+    step = parse_step(str(values.get(key, "")))
+    if step is None:
+        step = parse_step(default)
+    assert step is not None
+    return step
+
+
 def _as_bool(values: dict[str, str], key: str, default: bool) -> bool:
     """Parse an on/off setting, falling back to *default* for unknown words."""
 
@@ -233,5 +289,10 @@ def load_config(
         hud_layout=_as_choice(values, "HUD_LAYOUT", HUD_LAYOUTS, "compact"),
         hud_toast_ms=max(0, _as_int(values, "HUD_TOAST_MS", 1200)),
         hud_lcd=_as_bool(values, "HUD_LCD", True),
+        cue_step=_as_step(values, "CUE_STEP", DEFAULTS["CUE_STEP"]),
+        shift_cue_step=_as_step(values, "SHIFT_CUE_STEP", DEFAULTS["SHIFT_CUE_STEP"]),
+        nudge_step=_as_step(values, "NUDGE_STEP", DEFAULTS["NUDGE_STEP"]),
+        nudge_repeat_ms=_as_int(values, "NUDGE_REPEAT_MS", 150),
+        shift_oneshot_ms=_as_int(values, "SHIFT_ONESHOT_MS", 3000),
         env_path=resolved,
     )

@@ -71,6 +71,7 @@ class HudView:
     toast: str
     strips: tuple[StripView, ...]
     show_strips: bool
+    shift_text: str = "SHIFT"  # SHIFT / SHIFT 1x (one-shot) / SHIFT LOCK
 
 
 def mode_label(snapshot: HudSnapshot) -> tuple[str, str]:
@@ -82,12 +83,18 @@ def mode_label(snapshot: HudSnapshot) -> tuple[str, str]:
     )
 
 
+MODE_NAMES = {"tracking": "Tracking", "sequencer": "Sequencer", "mixing": "Mixing"}
+
+
 def bank_label(snapshot: HudSnapshot, strips: int = 8) -> str:
+    mode = MODE_NAMES.get(snapshot.mode, snapshot.mode)
+    if snapshot.buses:
+        return f"{mode} | Buses"
     offset = snapshot.bank_offset
     if offset is None:
-        return "Trk ?"
+        return f"{mode} | Trk ?"
     prefix = "" if snapshot.bank_exact else "~"
-    return f"Trk {prefix}{offset + 1}-{offset + strips}"
+    return f"{mode} | Trk {prefix}{offset + 1}-{offset + strips}"
 
 
 def selection_label(snapshot: HudSnapshot) -> str:
@@ -175,6 +182,7 @@ def build_view(
         transport_text=transport_text,
         transport_color=transport_color,
         badges=badges,
+        shift_text={"once": "SHIFT 1x", "locked": "SHIFT LOCK"}.get(snapshot.shift_state, "SHIFT"),
         time_text=snapshot.timecode,
         assignment_text=f"Assign {snapshot.assignment}" if snapshot.assignment else "",
         status_text=status_text,

@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 207 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 235 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -31,13 +31,12 @@ modes.
 | 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Needs the C4 surface |
 | 4-5 | Free | - |
 
-- [ ] Scene 1/2/3 select the mode; lit Scene LED; mode at startup (TBD: Tracking or last
-      used)
-- [ ] Decide whether Loop/Punch (62-65) stay the same in Mixing mode (proposed: yes; only
-      58-61 become FX controls)
-- [ ] Master button (80) = toggle the 8 strips between Tracks and Buses (Cakewalk Mackie
-      Track 76 / Aux 80), LED lit on Buses. Cakewalk's Mackie surface cannot *select* a bus
-      (Select highlights track only works on tracks)
+- [x] Scene 1/2/3 select the mode; lit Scene LED; always Tracking at startup (done)
+- [x] Loop/Punch (62-65) are the same in Mixing; only 58-61 become FX controls (done)
+- [x] Master button (80) = toggle the 8 strips between Tracks and Buses (Cakewalk Mackie
+      Track 76 / Aux 80); shown in the HUD, since the APC40 owns Master's LED. Cakewalk's
+      Mackie surface cannot *select* a bus (Select highlights track only works on tracks)
+      (done)
 
 ### Tracking mode (Scene 1)
 
@@ -49,16 +48,20 @@ Loop 85, Select 86, Punch 87) behind the scenes and always returns to Normal nav
 | Clip/Track (58) | Undo (MCU 82) | Redo (MCU 83) |
 | Device On/Off (59) | Insert marker (M1 + Marker) | *(free)* |
 | < / > (60/61) | Previous / next marker (Marker nav + Rew/FF) | Go to selection start / end (Select nav + Rew/FF) |
-| Detail View (62) | Loop <- selection (M2 + Loop) | Cakewalk meters on/off (done) |
+| Detail View (62) | Loop <- selection (M2 + Loop) | Cakewalk meters on/off |
 | Rec Quantize (63) | **Loop on/off** (Cakewalk note 89; LED = loop state) | *(free)* |
 | MIDI Overdub (64) | Punch <- selection (M2 + Punch) | *(free)* |
-| Metronome (65) | **Auto-punch on/off** (Mackie F-key assigned in the preset; no LED - Cakewalk reports no auto-punch state) | Metronome during record (F1, done) |
-| Nudge - / + | Rewind / Fast Forward, held through (done) | Selection start / end = playhead (Select nav + M1 + Rew/FF) |
+| Metronome (65) | **Auto-punch on/off** (Mackie F2 in the preset; no LED - Cakewalk reports no auto-punch state) | Metronome during record (F1) |
+| Nudge - / + | Move by `NUDGE_STEP`, repeating while held (done) | Selection start / end = playhead (Select nav + M1 + Rew/FF) |
 
-- [ ] Build the table above (Loop on/off and its LED move from 65 to 63)
-- [ ] Preset: pick one of F3-F8 for Cakewalk's auto-punch toggle; add it to the setup guide
-- [x] Nudge - / + = Rewind / Fast Forward, press and release forwarded so holding keeps
-      moving (done)
+- [x] Build the table above (Loop on/off and its LED moved from 65 to 63) (done)
+- [x] Preset: F2 = Cakewalk's auto-punch toggle (the crossfader's fit uses Cakewalk's
+      built-in Zoom + M4 + Right, so F2 was free); in the setup guide (done)
+- [ ] Verify on hardware: marker jumps, selection edges, loop/punch from selection,
+      auto-punch F2, Master Tracks/Buses (note 80 vs. bank dump)
+- [x] Nudge - / + move the playhead by `NUDGE_STEP`, repeating while held (done)
+- [x] Playhead step sizes in `.env`: `CUE_STEP`, `SHIFT_CUE_STEP` (Shift + Cue = fine),
+      `NUDGE_STEP`, `NUDGE_REPEAT_MS` as `<count> <measure|beat|tick|jog>` (done)
 
 ### Shift latching
 
@@ -68,9 +71,9 @@ Loop 85, Select 86, Punch 87) behind the scenes and always returns to Normal nav
 | Tap Shift | One-shot: the next **button** press is shifted (any button, used up either way); expires after `SHIFT_ONESHOT_MS` (default 3000) | `SHIFT 1x` |
 | Double-tap Shift (~0.4 s) | Locked until the next tap | `SHIFT LOCK` |
 
-- [ ] Implement; the engine exposes `off / held / once / locked` for the HUD. The APC40's
-      Shift has **no LED** (HUD only)
-- [ ] Knobs/faders see only held or locked Shift for now (TBD)
+- [x] Implemented: `Engine.shift_state` (`off / held / once / locked`), HUD badge
+      `SHIFT` / `SHIFT 1x` / `SHIFT LOCK`; no LED on the APC40 (done)
+- [ ] Knobs/faders see only held or locked Shift for now (revisit later)
 
 ### Step sequencer grid mode (Scene 2)
 
@@ -174,8 +177,8 @@ follows the selected track/bus; Master toggles Tracks/Buses for bus FX.
       Up/Down = Cakewalk arrow keys (done). In step-sequencer mode they will page steps
       (Left/Right) and lanes (Up/Down) instead
 - [ ] Tap Tempo (99): only flashes its LED; needs the keystroke bridge for real tap tempo
-- [x] Cue Level knob (CC 47) -> MCU jog (CC 60): moves the playhead by the preset's Jog
-      Wheel Resolution (done). Idea: Shift + Cue Level for finer steps (hold M2 = beats)
+- [x] Cue Level knob (CC 47) -> MCU jog (CC 60) by `CUE_STEP`; Shift + Cue by
+      `SHIFT_CUE_STEP` (done)
 - [x] Stop pressed twice quickly -> Cakewalk Home (go to start) (done)
 - Footswitches 1 / 2 (CC 64 / 67): not planned (unused)
 - [x] Removed the Rec Quantize "Cycle" LED placeholder: in Cakewalk mode LED 86 is the

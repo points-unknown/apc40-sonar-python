@@ -393,6 +393,7 @@ class HudApp:
         s(self.status, text=view.status_text, fg=view.status_color)
         for name, color in view.badges:
             s(self.badges[name], fg=color)
+        s(self.badges["SHIFT"], text=view.shift_text)
 
         if self.layout.get() != "expanded":
             return

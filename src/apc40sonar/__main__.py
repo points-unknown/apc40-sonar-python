@@ -272,6 +272,13 @@ def _run(args: argparse.Namespace) -> int:
         stop_double_frames=round(0.4 / POLL_SECONDS),
         zoom_step_units=cfg.zoom_step_units,
         zoom_idle_frames=round(cfg.zoom_idle_ms / 1000 / POLL_SECONDS),
+        cue_step=cfg.cue_step,
+        shift_cue_step=cfg.shift_cue_step,
+        nudge_step=cfg.nudge_step,
+        nudge_hold_frames=round(0.4 / POLL_SECONDS),
+        nudge_repeat_frames=round(cfg.nudge_repeat_ms / 1000 / POLL_SECONDS),
+        shift_oneshot_frames=round(cfg.shift_oneshot_ms / 1000 / POLL_SECONDS),
+        shift_double_frames=round(0.4 / POLL_SECONDS),
     )
 
     hud: _Hud | None = None

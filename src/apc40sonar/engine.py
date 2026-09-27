@@ -105,7 +105,15 @@ METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
 # Loop toggles on release; the cursor keys auto-repeat (0.4 s, then every
 # 50-500 ms) until Cakewalk sees their release.
 CAKEWALK_RELEASE_BUTTONS = frozenset(
-    {mcu.NOTE_CW_LOOP, mcu.NOTE_UP, mcu.NOTE_DOWN, mcu.NOTE_LEFT, mcu.NOTE_RIGHT}
+    {
+        mcu.NOTE_CW_LOOP,
+        mcu.NOTE_UP,
+        mcu.NOTE_DOWN,
+        mcu.NOTE_LEFT,
+        mcu.NOTE_RIGHT,
+        mcu.NOTE_REWIND,  # in marker navigation Rew/FF repeat until released
+        mcu.NOTE_FORWARD,
+    }
 )
 
 # Crossfader zoom: at or below this position the slider fits the project;
@@ -127,9 +135,12 @@ APC_GLOBAL_BUTTONS = {
     apc.NOTE_DOWN: mcu.NOTE_DOWN,
     apc.NOTE_LEFT: mcu.NOTE_BANK_LEFT,
     apc.NOTE_RIGHT: mcu.NOTE_BANK_RIGHT,
-    # Loop on/off: Cakewalk mode has no metronome button; its note 89 (the
-    # standard MCU "Click") toggles transport loop and its LED shows loop state.
-    apc.NOTE_UTIL_METRONOME: mcu.NOTE_CW_LOOP,
+    # Loop on/off on Rec Quantize: Cakewalk's note 89 (the standard MCU
+    # "Click") toggles transport loop and its LED shows loop state.
+    apc.NOTE_UTIL_REC_QUANT: mcu.NOTE_CW_LOOP,
+    # Auto-punch on/off via Mackie F2, which the preset assigns to Cakewalk's
+    # auto-punch toggle. Cakewalk reports no auto-punch state (no LED).
+    apc.NOTE_UTIL_METRONOME: mcu.NOTE_F2,
 }
 
 # Shift + APC40 button -> MCU note. Channel Left/Right moves the window by
@@ -146,13 +157,25 @@ APC_SHIFT_BUTTONS = {
 # magnitude, so a fast turn is sent as several single steps.
 CUE_JOG_STEP_LIMIT = 4
 
-# APC40 buttons forwarded press *and* release, for MCU buttons Cakewalk acts
-# on for as long as they are held. Rewind / Fast Forward move the now time by
-# the Mackie preset's Transport Resolution and repeat while held.
-APC_HOLD_BUTTONS = {
-    apc.NOTE_NUDGE_MINUS: mcu.NOTE_REWIND,
-    apc.NOTE_NUDGE_PLUS: mcu.NOTE_FORWARD,
+# Playhead steps: one Mackie jog message moves Cakewalk's now time by one unit,
+# chosen by the modifier held with it (M1 measure, M2 beat, M3 tick; none = the
+# preset's Jog Wheel Resolution). Cakewalk reads only the direction, so a step
+# of N units is N messages.
+JOG_UNIT_MODIFIER = {
+    "measure": mcu.NOTE_M1,
+    "beat": mcu.NOTE_M2,
+    "tick": mcu.NOTE_M3,
+    "jog": None,
 }
+
+# Jog messages allowed per frame (20 ms) across all playhead moves. Cakewalk
+# moves one unit per message, so fine tick steps are many messages; a fast
+# spin must never flood the loopMIDI cable (its flood protection disables the
+# port until loopMIDI is restarted). Excess steps in a frame are dropped.
+JOG_BUDGET_PER_FRAME = 48
+
+# Nudge - / + move the playhead back / forward.
+APC_NUDGE_FORWARD = {apc.NOTE_NUDGE_MINUS: False, apc.NOTE_NUDGE_PLUS: True}
 
 # Buttons whose LED flashes to acknowledge a press (no host feedback exists).
 APC_FLASH_ON_PRESS = frozenset({apc.NOTE_LEFT, apc.NOTE_RIGHT})
@@ -176,7 +199,39 @@ BANK_MOVES = {
 }
 
 # Other presses with no Cakewalk feedback, echoed as HUD toasts.
-PRESS_TOASTS = {mcu.NOTE_F1: "Metronome (rec) toggled"}
+PRESS_TOASTS = {
+    mcu.NOTE_F1: "Metronome (rec) toggled",
+    mcu.NOTE_F2: "Auto-punch toggled",
+}
+
+# Scene buttons select the mode (Scene 2 = step sequencer, not built yet).
+MODES = ("tracking", "sequencer", "mixing")
+MODE_SCENE = {"tracking": apc.NOTE_SCENE1, "sequencer": apc.NOTE_SCENE1 + 1, "mixing": apc.NOTE_SCENE1 + 2}
+SCENE_MODE = {note: mode for mode, note in MODE_SCENE.items()}
+MODE_TOASTS = {"tracking": "Tracking mode", "sequencer": "Step sequencer mode", "mixing": "Mixing mode"}
+BUILT_MODES = frozenset({"tracking", "mixing"})
+
+# Utility-row buttons that change with the mode; the rest of the row (62-65)
+# works the same in every mode. In Mixing, 58-61 are reserved for C4 plug-in
+# control (not built yet) and do nothing.
+TRACKING_ONLY = frozenset({
+    apc.NOTE_UTIL_CLIP_TRACK,
+    apc.NOTE_UTIL_DEVICE_ONOFF,
+    apc.NOTE_UTIL_LEFT_ARROW,
+    apc.NOTE_UTIL_RIGHT_ARROW,
+})
+
+# Cakewalk navigation-mode LEDs (none lit = normal navigation).
+NAV_LEDS = {
+    mcu.NOTE_CW_MARKER: "marker",
+    mcu.NOTE_CW_LOOP_NAV: "loop",
+    mcu.NOTE_CW_SELECT_NAV: "select",
+    mcu.NOTE_CW_PUNCH_NAV: "punch",
+}
+
+# Master (80) also arrives as the APC40's Master-bank knob dump; a dump this
+# soon after a Master note is the same press.
+MASTER_DEDUP_FRAMES = 15
 
 TOAST_HISTORY = 8
 
@@ -202,6 +257,13 @@ class Engine:
         zoom_idle_frames: int = 15,
         link_idle_frames: int = 250,
         peek_frames: int = 125,
+        cue_step: tuple[int, str] = (1, "beat"),
+        shift_cue_step: tuple[int, str] = (30, "tick"),
+        nudge_step: tuple[int, str] = (1, "measure"),
+        nudge_hold_frames: int = 20,
+        nudge_repeat_frames: int = 8,
+        shift_oneshot_frames: int = 150,
+        shift_double_frames: int = 20,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -230,6 +292,15 @@ class Engine:
         # Cakewalk's zoom mode is switched back off.
         self.zoom_step_units = max(1, zoom_step_units)
         self.zoom_idle_frames = max(1, zoom_idle_frames)
+        # Playhead steps (count, unit) for Cue, Shift + Cue and Nudge; a held
+        # Nudge repeats every nudge_repeat_frames after nudge_hold_frames.
+        self.cue_step = cue_step
+        self.shift_cue_step = shift_cue_step
+        self.nudge_step = nudge_step
+        self.nudge_hold_frames = max(1, nudge_hold_frames)
+        self.nudge_repeat_frames = max(1, nudge_repeat_frames)
+        self._nudge: dict | None = None  # the held Nudge button, if any
+        self._jog_budget = JOG_BUDGET_PER_FRAME
         # HUD: Cakewalk counts as active while it sent feedback this recently,
         # and an LCD name change this soon after a V-pot turn is a value peek.
         self.link_idle_frames = link_idle_frames
@@ -238,7 +309,16 @@ class Engine:
         self.knob_mode = "pan"
         self.mixer = True  # True: Track Control knobs drive the V-pots
         self.show_running = False
-        self.shift = False
+        # Shift (no LED on the APC40; the HUD shows it). Hold = shifted while
+        # down; tap = one-shot for the next button press (expires after
+        # shift_oneshot_frames); double-tap = locked until the next tap.
+        self.shift_oneshot_frames = max(1, shift_oneshot_frames)
+        self.shift_double_frames = max(1, shift_double_frames)
+        self._shift_down = False
+        self._shift_used = False  # a button was pressed while Shift was held
+        self._shift_latch = "off"  # "off" / "once" / "locked"
+        self._shift_tap_frame = 0
+        self._shift_expire_frame = 0
         # Cakewalk's current assignment ("pan", "send", another, or None =
         # unknown) and Edit mode, both from its LEDs. Pressing the assignment
         # that is already active flips Cakewalk's knobs to single-track
@@ -246,6 +326,11 @@ class Engine:
         # presses an assignment button when switching.
         self._cw_assign: str | None = None
         self._cw_edit = False
+        self._cw_nav: str | None = None  # Cakewalk navigation mode, from its LEDs
+        self._cw_buses = False  # strips show buses, from Cakewalk's Aux LED
+        self._master_note_frame: int | None = None
+        # Operating mode, selected with the Scene buttons; always Tracking at start.
+        self.mode = "tracking"
         # Last loop LED state from Cakewalk, shown on the Metronome button.
         self._loop_led = apc.LED_OFF
 
@@ -373,8 +458,9 @@ class Engine:
 
         if cc == apc.CC_CUE_LEVEL:
             delta = value - 128 if value > 63 else value
-            for _ in range(min(abs(delta), CUE_JOG_STEP_LIMIT)):
-                self._send_mcu(mcu.jog(delta > 0))
+            if delta:
+                step = self.shift_cue_step if self.knob_shift else self.cue_step
+                self._move_playhead(delta > 0, step, min(abs(delta), CUE_JOG_STEP_LIMIT))
             return
 
         if channel != 0:
@@ -418,6 +504,13 @@ class Engine:
         pressed = velocity > 0
         per_track_end = apc.NOTE_CLIP_ROW1 + self.rows - 1
 
+        if note == apc.NOTE_SHIFT:
+            self._on_shift(pressed)
+            return
+        # Every button press takes the Shift state; a one-shot is used up by
+        # the press whatever the button (even one without a Shift function).
+        shifted = self._take_shift() if pressed else False
+
         # Per-track controls arrive on channels 0-7.
         if channel < self.tracks and apc.NOTE_RECORD_ARM <= note <= per_track_end:
             if note >= apc.NOTE_CLIP_ROW1:
@@ -460,23 +553,30 @@ class Engine:
         if channel != 0:
             return
 
-        # The Metronome button is momentary: the APC40 switches its own LED off
-        # on release, which can land after Cakewalk's loop LED update (during
-        # playback Cakewalk refreshes fast enough to beat the finger). Re-assert
-        # the loop state on every release.
-        if note == apc.NOTE_UTIL_METRONOME and not pressed:
-            self.apc.global_note(apc.NOTE_UTIL_METRONOME, self._loop_led, force=True)
+        # The Rec Quantize button (Loop on/off) is momentary: the APC40 switches
+        # its own LED off on release, which can land after Cakewalk's loop LED
+        # update (during playback Cakewalk refreshes fast enough to beat the
+        # finger). Re-assert the loop state on every release. Scene LEDs (the
+        # mode) likewise.
+        if note == apc.NOTE_UTIL_REC_QUANT and not pressed:
+            self.apc.global_note(apc.NOTE_UTIL_REC_QUANT, self._loop_led, force=True)
+            return
+        if note in apc.SCENE_NOTES and not pressed:
+            self._render_mode_leds()
             return
 
-        if note == apc.NOTE_SHIFT:
-            self.shift = pressed  # the APC40's Shift has no LED; the HUD shows it
+        # Mode-dependent utility row (Tracking: editing, markers, selection).
+        if pressed and self._on_mode_button(note, shifted):
             return
 
         # Shift layer: mapped combos replace the button's normal action;
         # unmapped ones fall through unchanged.
-        if self.shift and pressed:
+        if shifted:
             if note == apc.NOTE_UTIL_DETAIL_VIEW:
                 self.toggle_cakewalk_meters()
+                return
+            if note in APC_NUDGE_FORWARD:
+                self._set_selection_edge(APC_NUDGE_FORWARD[note])
                 return
             shifted = APC_SHIFT_BUTTONS.get(note)
             if shifted is not None:
@@ -490,11 +590,14 @@ class Engine:
             self._on_stop_press()
             return
 
-        # Hold-through buttons: Cakewalk keeps rewinding / fast-forwarding while
-        # the button is down, so forward both edges (release as Note On 0).
-        held = APC_HOLD_BUTTONS.get(note)
-        if held is not None:
-            self._send_mcu(mcu.button_press(held) if pressed else mcu.cakewalk_release(held))
+        # Nudge: one step per press, repeating while held (see tick()).
+        if note in APC_NUDGE_FORWARD:
+            if pressed:
+                forward = APC_NUDGE_FORWARD[note]
+                self._move_playhead(forward, self.nudge_step)
+                self._nudge = {"forward": forward, "next": self._frame + self.nudge_hold_frames}
+            else:
+                self._nudge = None
             return
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)
@@ -523,10 +626,13 @@ class Engine:
             self.set_knob_mode("send_b")
         elif note == apc.NOTE_SEND_C:
             self.set_knob_mode("send_c")
+        elif note in SCENE_MODE:
+            self.set_mode(SCENE_MODE[note])
         elif note in apc.SCENE_NOTES:
-            self.apc.global_note(note, apc.LED_ON)  # provisional scene indication
+            self._render_mode_leds()  # Scenes 4-5: free
         elif note == apc.NOTE_MASTER:
-            self.apc.global_note(apc.NOTE_MASTER, apc.LED_ON)
+            self._master_note_frame = self._frame
+            self.toggle_strip_type()
         elif note == apc.NOTE_TAP_TEMPO:
             self._flash_global(apc.NOTE_TAP_TEMPO)
 
@@ -606,8 +712,14 @@ class Engine:
         if len(dump) != 1:
             return
         (channel, ccs), = dump.items()
-        if len(ccs) == self.tracks and channel < self.tracks:
+        if len(ccs) != self.tracks:
+            return
+        if channel < self.tracks:
             self._select_strip(channel)
+        elif channel == apc.DEVICE_BANKS - 1:  # Master
+            last = self._master_note_frame
+            if last is None or self._frame - last > MASTER_DEDUP_FRAMES:
+                self.toggle_strip_type()
 
     def _select_strip(self, strip: int) -> None:
         self._mcu_click(APC_TRACK_SELECT_NOTE + strip)
@@ -628,6 +740,176 @@ class Engine:
         text = PRESS_TOASTS.get(mcu_note)
         if text is not None:
             self.toast(text)
+
+    # ------------------------------------------------------------------
+    # Shift
+    # ------------------------------------------------------------------
+
+    @property
+    def shift_state(self) -> str:
+        """``off`` / ``held`` / ``once`` / ``locked`` (held wins while down)."""
+
+        return "held" if self._shift_down else self._shift_latch
+
+    @property
+    def shift(self) -> bool:
+        """True when the next button press is shifted."""
+
+        return self.shift_state != "off"
+
+    @property
+    def knob_shift(self) -> bool:
+        """Shift for knobs and faders: only held or locked, never a one-shot."""
+
+        return self._shift_down or self._shift_latch == "locked"
+
+    def _on_shift(self, pressed: bool) -> None:
+        if pressed:
+            self._shift_down = True
+            self._shift_used = False
+            return
+        self._shift_down = False
+        if self._shift_used:
+            return  # it was held for a combo, not tapped
+        # A tap: off -> one-shot, quick second tap -> locked, otherwise off.
+        if self._shift_latch == "once" and self._frame - self._shift_tap_frame <= self.shift_double_frames:
+            self._shift_latch = "locked"
+        elif self._shift_latch == "off":
+            self._shift_latch = "once"
+            self._shift_tap_frame = self._frame
+            self._shift_expire_frame = self._frame + self.shift_oneshot_frames
+        else:
+            self._shift_latch = "off"
+
+    def _take_shift(self) -> bool:
+        """Shift state for one button press; uses up a one-shot."""
+
+        if self._shift_down:
+            self._shift_used = True
+            return True
+        if self._shift_latch == "once":
+            self._shift_latch = "off"
+            return True
+        return self._shift_latch == "locked"
+
+    def _expire_shift(self) -> None:
+        if self._shift_latch == "once" and self._frame >= self._shift_expire_frame:
+            self._shift_latch = "off"
+
+    def _move_playhead(self, forward: bool, step: tuple[int, str], times: int = 1) -> None:
+        """Move Cakewalk's now time by *times* x *step* (count, unit)."""
+
+        count, unit = step
+        total = min(count * times, self._jog_budget)
+        if total <= 0:
+            return  # this frame's budget is spent: drop the step
+        self._jog_budget -= total
+        modifier = JOG_UNIT_MODIFIER[unit]
+        if modifier is not None:
+            self._send_mcu(mcu.button_press(modifier))
+        for _ in range(total):
+            self._send_mcu(mcu.jog(forward))
+        if modifier is not None:
+            self._send_mcu(mcu.cakewalk_release(modifier))
+
+    def _repeat_nudge(self) -> None:
+        nudge = self._nudge
+        if nudge is None or self._frame < nudge["next"]:
+            return
+        self._move_playhead(nudge["forward"], self.nudge_step)
+        nudge["next"] = self._frame + self.nudge_repeat_frames
+
+    # ------------------------------------------------------------------
+    # Modes and the Tracking utility row
+    # ------------------------------------------------------------------
+
+    def set_mode(self, mode: str) -> None:
+        """Select the operating mode (Scene 1 / 2 / 3)."""
+
+        if mode not in BUILT_MODES:
+            self.toast("Step sequencer: not built yet")
+            self._render_mode_leds()
+            return
+        self.mode = mode
+        self._render_mode_leds()
+        self.toast(MODE_TOASTS[mode])
+
+    def _render_mode_leds(self) -> None:
+        lit = MODE_SCENE[self.mode]
+        for note in apc.SCENE_NOTES:
+            self.apc.global_note(note, apc.LED_ON if note == lit else apc.LED_OFF, force=True)
+
+    def _on_mode_button(self, note: int, shifted: bool) -> bool:
+        """Handle a mode-dependent utility-row press. True when handled."""
+
+        if note in TRACKING_ONLY and self.mode != "tracking":
+            return True  # Mixing: reserved for C4 plug-in control
+        if note == apc.NOTE_UTIL_CLIP_TRACK:
+            self._mcu_click(mcu.NOTE_CW_REDO if shifted else mcu.NOTE_CW_UNDO)
+            self.toast("Redo" if shifted else "Undo")
+        elif note == apc.NOTE_UTIL_DEVICE_ONOFF:
+            if not shifted:
+                self._with_modifier(mcu.NOTE_M1, mcu.NOTE_CW_MARKER)
+                self.toast("Marker inserted")
+        elif note in (apc.NOTE_UTIL_LEFT_ARROW, apc.NOTE_UTIL_RIGHT_ARROW):
+            forward = note == apc.NOTE_UTIL_RIGHT_ARROW
+            button = mcu.NOTE_FORWARD if forward else mcu.NOTE_REWIND
+            if shifted:
+                self._in_navigation(mcu.NOTE_CW_SELECT_NAV, lambda: self._mcu_click(button))
+                self.toast("Go to selection end" if forward else "Go to selection start")
+            else:
+                self._in_navigation(mcu.NOTE_CW_MARKER, lambda: self._mcu_click(button))
+                self.toast("Next marker" if forward else "Previous marker")
+        elif note == apc.NOTE_UTIL_DETAIL_VIEW and not shifted:
+            self._with_modifier(mcu.NOTE_M2, mcu.NOTE_CW_LOOP_NAV)
+            self.toast("Loop <- selection")
+        elif note == apc.NOTE_UTIL_OVERDUB:
+            if not shifted:
+                self._with_modifier(mcu.NOTE_M2, mcu.NOTE_CW_PUNCH_NAV)
+                self.toast("Punch <- selection")
+        else:
+            return False
+        return True
+
+    def _with_modifier(self, modifier: int, note: int) -> None:
+        """Press *note* while holding a Mackie modifier (M1-M4)."""
+
+        self._send_mcu(mcu.button_press(modifier))
+        self._mcu_click(note)
+        self._send_mcu(mcu.cakewalk_release(modifier))
+
+    def _in_navigation(self, nav_note: int, action: Callable[[], None]) -> None:
+        """Run *action* in a Cakewalk navigation mode, then return to normal.
+
+        Pressing a navigation button enters that mode, or leaves it (back to
+        normal) when it is already active. The mode follows Cakewalk's LEDs.
+        """
+
+        target = next(name for n, name in NAV_LEDS.items() if n == nav_note)
+        if self._cw_nav != target:
+            self._mcu_click(nav_note)
+        action()
+        self._mcu_click(nav_note)  # active mode pressed again -> normal
+        self._cw_nav = None
+
+    def _set_selection_edge(self, end: bool) -> None:
+        """Selection start (end) = playhead: Select navigation + M1 + Rew (FF)."""
+
+        button = mcu.NOTE_FORWARD if end else mcu.NOTE_REWIND
+        self._in_navigation(mcu.NOTE_CW_SELECT_NAV, lambda: self._with_modifier(mcu.NOTE_M1, button))
+        self.toast("Selection end = playhead" if end else "Selection start = playhead")
+
+    def toggle_strip_type(self) -> None:
+        """Master: switch the 8 strips between tracks and buses."""
+
+        if self._cw_buses:
+            self._mcu_click(mcu.NOTE_CW_TRACK)
+            self._cw_buses = False
+            self.toast("Tracks")
+        else:
+            self._mcu_click(mcu.NOTE_CW_AUX)
+            self._cw_buses = True
+            self.toast("Buses")
 
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
@@ -766,7 +1048,16 @@ class Engine:
             self._zoom_mode = state != "off"
         elif note == mcu.NOTE_CW_LOOP:
             self._loop_led = on
-            self.apc.global_note(apc.NOTE_UTIL_METRONOME, on, force=True)
+            self.apc.global_note(apc.NOTE_UTIL_REC_QUANT, on, force=True)
+        elif note in NAV_LEDS:
+            if state != "off":
+                self._cw_nav = NAV_LEDS[note]
+            elif self._cw_nav == NAV_LEDS[note]:
+                self._cw_nav = None
+        elif note == mcu.NOTE_CW_AUX:
+            self._cw_buses = state != "off"
+        elif note == mcu.NOTE_CW_TRACK and state != "off":
+            self._cw_buses = False
 
     def on_mcu_cc(self, cc: int, value: int) -> None:
         if self.seven_seg.apply(cc, value):
@@ -1041,9 +1332,12 @@ class Engine:
         """Advance meter decay and pending flashes by one frame. Call from the run loop."""
 
         self._frame += 1
+        self._jog_budget = JOG_BUDGET_PER_FRAME
         self._settle_meter_toggle()
         self._zoom_idle()
         self._settle_knob_dump()
+        self._repeat_nudge()
+        self._expire_shift()
         self._decay_meters()  # also keeps the HUD meters falling when the grid is off
         if any(self._peek) and self._temp_message is None:
             self._update_strip_names(expire=True)
@@ -1083,6 +1377,9 @@ class Engine:
             knob_mode=self.knob_mode,
             mixer=self.mixer,
             shift=self.shift,
+            shift_state=self.shift_state,
+            mode=self.mode,
+            buses=self._cw_buses,
             transport=transport,
             loop=self._loop_led != apc.LED_OFF,
             zoom=self._zoom_mode,
@@ -1127,6 +1424,7 @@ class Engine:
             for knob in range(1, self.tracks + 1):
                 self.apc.ring_style(apc.device_ring_style_cc(knob), apc.RING_PAN, channel=bank, force=True)
                 self.apc.ring_position(apc.device_ring_cc(knob), 63, channel=bank, force=True)
-        self.apc.global_note(apc.NOTE_MASTER, apc.LED_ON, force=True)
-        self.apc.global_note(apc.NOTE_SCENE1 + 4, apc.LED_ON, force=True)  # Scene 5
+        # Master's LED belongs to the APC40's Track Selection radio group.
+        self.mode = "tracking"
+        self._render_mode_leds()
         self.set_knob_mode("pan")

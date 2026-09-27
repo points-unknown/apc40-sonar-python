@@ -45,6 +45,7 @@ NOTE_FLIP = 50
 NOTE_GLOBAL = 51
 NOTE_NAME_VALUE = 52
 NOTE_F1 = 54  # F1-F8 = 54-61; Cakewalk runs the command assigned on its surface page
+NOTE_F2 = 55
 
 # Modifiers M1-M4 (Cakewalk: M1 Ctrl, M2 Option, M3 Snapshot, M4 Shift). Held
 # while another button is pressed. Cakewalk only honors them with its default
@@ -81,6 +82,14 @@ NOTE_SCRUB = 101
 # the standard MCU labels above. Cakewalk has no Click (metronome) button.
 NOTE_CW_LOOP = 89  # standard "Click": transport loop on/off; LED = loop state
 NOTE_CW_HOME = 90  # standard "Solo": go to start
+NOTE_CW_TRACK = 76  # strips show tracks; LED on while tracks are shown
+NOTE_CW_AUX = 80  # strips show buses; LED on while buses are shown
+NOTE_CW_UNDO = 82
+NOTE_CW_REDO = 83
+NOTE_CW_MARKER = 84  # marker navigation (M1 + Marker = insert marker)
+NOTE_CW_LOOP_NAV = 85  # loop navigation (M2 + Loop = loop from selection)
+NOTE_CW_SELECT_NAV = 86  # selection navigation
+NOTE_CW_PUNCH_NAV = 87  # punch navigation (M2 + Punch = punch from selection)
 NOTE_CW_DYNAMICS = 45  # standard "Instrument": Dynamics assignment
 NOTE_CW_EDIT = 51  # standard "Global": Edit mode (Bank/Channel move the parameter)
 

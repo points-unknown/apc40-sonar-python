@@ -210,3 +210,44 @@ def test_hud_settings_override_and_validation(tmp_path, monkeypatch):
     env_file.write_text("HUD_OPACITY=abc\nHUD_LAYOUT=huge\n", encoding="utf-8")
     cfg = config.load_config(env_path=env_file)
     assert (cfg.hud_opacity, cfg.hud_layout) == (0.85, "compact")
+
+
+def test_playhead_steps_default_and_override(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    monkeypatch.delenv(config.ENV_VAR, raising=False)
+
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert cfg.cue_step == (1, "beat")
+    assert cfg.shift_cue_step == (30, "tick")
+    assert cfg.nudge_step == (1, "measure")
+    assert cfg.nudge_repeat_ms == 150
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "CUE_STEP=2 beats\nSHIFT_CUE_STEP=40 ticks\nNUDGE_STEP=measure\nNUDGE_REPEAT_MS=100\n",
+        encoding="utf-8",
+    )
+    cfg = config.load_config(env_path=env_file)
+    assert (cfg.cue_step, cfg.shift_cue_step, cfg.nudge_step) == ((2, "beat"), (40, "tick"), (1, "measure"))
+    assert cfg.nudge_repeat_ms == 100
+
+
+def test_invalid_playhead_step_falls_back_to_default(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("CUE_STEP=3 bars\nNUDGE_STEP=0 beat\n", encoding="utf-8")
+
+    cfg = config.load_config(env_path=env_file)
+
+    assert cfg.cue_step == (1, "beat")
+    assert cfg.nudge_step == (1, "measure")
+
+
+def test_parse_step_forms():
+    assert config.parse_step("1 beat") == (1, "beat")
+    assert config.parse_step("30 Ticks") == (30, "tick")
+    assert config.parse_step("measure") == (1, "measure")
+    assert config.parse_step("jog") == (1, "jog")
+    assert config.parse_step("49 tick") is None  # capped: flood risk
+    assert config.parse_step("") is None
+

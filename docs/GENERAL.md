@@ -74,6 +74,11 @@ Port names and options live in `.env` at the repository root (copy
 | `METER_DECAY_MS` | `300` | Meter fall time per level, like a real MCU |
 | `ZOOM_STEP_UNITS` | `6` | Crossfader travel (0-127 scale) per zoom step; lower = faster zoom |
 | `ZOOM_IDLE_MS` | `300` | Leave Cakewalk's zoom mode this long after the crossfader stops |
+| `CUE_STEP` | `1 beat` | Playhead move per Cue Level detent (`<count> <unit>`, see below) |
+| `SHIFT_CUE_STEP` | `30 tick` | Playhead move per Cue Level detent with Shift held |
+| `NUDGE_STEP` | `1 measure` | Playhead move per Nudge press (and per repeat while held) |
+| `NUDGE_REPEAT_MS` | `150` | Repeat interval while Nudge is held (after a 0.4 s hold) |
+| `SHIFT_ONESHOT_MS` | `3000` | A tapped (one-shot) Shift expires after this long |
 | `HUD` | `on` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
 | `HUD_PORT` | `47040` | UDP port on 127.0.0.1 between the app and the HUD |
 | `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-left` / `bottom-right`, or `x,y` on the monitor |
@@ -120,14 +125,17 @@ Process-environment values override the file, so a one-off run can use
 | Track Select (note 51) | Select notes 24-31 |
 | Clip Stop (note 52) | V-pot push notes 32-39 |
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
-| Nudge - / + (101/100) | Rewind 91 / Fast Forward 92, press **and** release forwarded (release as Note On velocity 0): Cakewalk moves by the preset's Transport Resolution and repeats while held |
+| Nudge - / + (101/100) | Jog CC 60 x `NUDGE_STEP`, repeated by the engine while held (see *Playhead steps*) |
 | Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
 | Shift + Bank Select Left / Right | Channel Left 48 / Channel Right 49 (window moves by 1) |
 | Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
-| Metronome (65, bank channel 0-8) | Note 89: Cakewalk's **Loop on/off** (see below) |
+| Rec Quantize (63, bank channel 0-8) | Note 89: Cakewalk's **Loop on/off** (see below); LED 89 -> Rec Quantize LED |
+| Metronome (65) | Mackie F2 (55): auto-punch (preset); Shift = F1 (54): metronome during record |
+| Master (80, or its bank's knob dump) | Cakewalk Track 76 / Aux 80: strips show tracks / buses (toggle, from their LEDs) |
+| Scene 1 / 2 / 3 (82-84) | Mode: Tracking / Step Sequencer (not built) / Mixing |
 | Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
 | Crossfader (CC 15, absolute) | Horizontal zoom via MCU Zoom 100 + Cursor Left/Right (see below) |
-| Cue Level (CC 47, relative) | Jog CC 60: one message per detent (max 4 per event), `0x01` forward / `0x41` back |
+| Cue Level (CC 47, relative) | Jog CC 60 x `CUE_STEP` per detent (`SHIFT_CUE_STEP` with Shift held), max 4 detents per event |
 | Pan / Send A / Send B / Send C (87-90) | Assign Pan 42 / Assign Send 41 (only when switching), then send 1/2/3 selection (see below) + ring style |
 
 **Cakewalk mode renames some MCU buttons.** With the *Cakewalk/SONAR Mode* protocol,
@@ -135,15 +143,28 @@ Cakewalk's Mackie Control uses its own button table, and a few notes differ from
 standard MCU labels: note 89 (standard *Click*) is **Loop on/off** (LED 89 shows loop
 state). Loop toggles on **release**, and Cakewalk only passes status 0x90 to its buttons,
 so the engine releases it with Note On velocity 0; a real Note Off (0x80) is dropped and
-loop never toggles. The APC40's Metronome button is momentary and switches its own LED
+loop never toggles. The APC40's Rec Quantize button (Loop on/off) is momentary and switches its own LED
 off on release; during playback Cakewalk's loop LED can arrive while the button is still
-held, so the engine re-sends the last loop state on every Metronome release. Note 90
+held, so the engine re-sends the last loop state on every Rec Quantize release. Note 90
 (standard *Solo*) is **Home** (go to
 start), and LED 86 (standard *Cycle*) is the Select-navigation mode. There is **no
 metronome button**; the metronome is reached through an F-key (54-61) assigned to a
-Cakewalk command on the surface page. The Cue Level jog moves the now time by the page's
-*Jog Wheel Resolution*; Cakewalk ignores the jog value's size, so each message is one
-step.
+Cakewalk command on the surface page.
+
+### Playhead steps
+
+One Mackie jog message (CC 60, `0x01` forward / `0x41` back; Cakewalk reads only the
+direction) moves the now time by one unit, chosen by the modifier held with it
+(`NudgeTimeCursor`): **M1 = 1 measure**, **M2 = 1 beat** (both snap to the grid),
+**M3 = 1 tick** (1/960 beat at Cakewalk's default), none = the preset's *Jog Wheel
+Resolution*. A step setting `<count> <unit>` is therefore sent as the modifier press,
+*count* jog messages, and the modifier release (Note On velocity 0). `CUE_STEP`,
+`SHIFT_CUE_STEP` and `NUDGE_STEP` use this; a held Nudge repeats `NUDGE_STEP` every
+`NUDGE_REPEAT_MS` after 0.4 s. Each unit is one MIDI message, so counts are capped at 48
+and the engine sends at most `JOG_BUDGET_PER_FRAME` (48) jog messages per 20 ms frame,
+dropping the excess. Without that, a fast spin with a fine tick step (it was 120 ticks)
+flooded `APC40-IN` and loopMIDI's flood protection disabled the cable until loopMIDI
+was restarted.
 
 **Cursor keys need a visible release.** Cakewalk auto-repeats a cursor key (Up/Down/
 Left/Right, 96-99) 0.4 s after the press and then every 50-500 ms until it sees the
@@ -173,6 +194,39 @@ one. Only sends 1-3 are reachable; reorder sends in Cakewalk to control others.
 The layout is not saved with the project; Cakewalk starts every session in the 8-track
 layout. If the knobs ever control one track's parameters instead of 8 tracks (for example
 left over from an older build that re-pressed the assignment), restart Cakewalk.
+
+### Modes and the Tracking utility row
+
+The Scene buttons select the operating mode (`Engine.mode`, always `tracking` at start);
+the mode's Scene LED is lit and re-sent on every Scene release (the APC40 may blank it
+locally). Only utility-row buttons 58-61 depend on the mode: in **Tracking** they are
+editing and navigation, in **Mixing** they are reserved for C4 plug-in control and do
+nothing yet. 62-65, Nudge and everything else work the same in both.
+
+Tracking uses Cakewalk's own Mackie buttons (Cakewalk mode numbers):
+
+| APC40 | Cakewalk Mackie |
+|---|---|
+| Clip/Track / Shift | Undo 82 / Redo 83 |
+| Device On/Off | M1 + Marker 84 (insert marker) |
+| Left / Right arrow | Marker navigation 84 + Rewind 91 / Forward 92 (previous / next marker) |
+| Shift + Left / Right | Select navigation 86 + Rewind / Forward (go to selection from / thru) |
+| Shift + Nudge - / + | Select navigation 86 + M1 + Rewind / Forward (selection from / thru = now) |
+| Detail View | M2 + Loop 85 (loop from selection) |
+| MIDI Overdub | M2 + Punch 87 (punch from selection) |
+
+Navigation buttons (Marker 84, Loop 85, Select 86, Punch 87) enter their mode, or return
+to normal navigation when that mode is already active (`OnSelectNavigationMode`). The
+engine follows Cakewalk's navigation LEDs 84-87, enters the mode only if needed, runs the
+Rewind/Forward press, and presses the button again to return to normal, so Nudge and the
+other buttons never inherit a navigation mode. Rewind/Forward are released with Note On
+velocity 0: in marker navigation Cakewalk repeats them until it sees the release.
+
+**Master** toggles the strips between tracks and buses with Cakewalk's Track 76 / Aux 80
+buttons, following their LEDs. In Generic Mode Master is part of the Track Selection radio
+group, so it may arrive as note 80 or only as the Master bank's knob dump (channel 8); a
+dump within `MASTER_DEDUP_FRAMES` of a Master note is the same press. The APC40 lights
+Master itself, so the HUD shows Tracks/Buses instead of the LED.
 
 ### Crossfader zoom
 
@@ -249,9 +303,21 @@ is a bottom-up meter for its track, and the Clip Stop LED is that track's clip i
 
 ### Shift layer
 
-Shift (note 98) is tracked locally and lights while held; it sends nothing to Cakewalk.
+Shift (note 98) is tracked locally and sends nothing to Cakewalk; the APC40's Shift has
+no LED, so the HUD shows it. `Engine.shift_state` is `off`, `held`, `once` or `locked`:
+
+- **Held**: a button pressed while Shift is down is shifted, and releasing Shift then
+  does nothing (it was a combo, not a tap).
+- **Tap** (press and release with no button in between) arms a **one-shot**: the next
+  button press is shifted and clears it, whatever the button. It expires after
+  `SHIFT_ONESHOT_MS` (default 3000).
+- A second tap within 0.4 s **locks** Shift until the next tap; a slower second tap
+  cancels the one-shot.
+- Knobs (`Engine.knob_shift`, used by Shift + Cue Level) see only held or locked Shift,
+  so a stray knob turn never uses up a one-shot.
+
 Mapped Shift combos replace the button's normal action; unmapped ones behave as if
-Shift were not held.
+Shift were not active.
 
 | Combo | Action |
 |---|---|
