@@ -11,7 +11,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 133 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 138 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -110,6 +110,9 @@ Tasks:
   - [x] Handle Mode 0 Device Control banking: the knobs and the utility row (58-65)
         report on the **selected track's channel** (0-7, Master = 8); the engine accepts
         channels 0-8 and writes utility-row LEDs to all nine banks (done)
+- [ ] Device mode: Track Selection makes the APC40 dump all eight Device knob positions on the
+  new bank's channel; reset the Device knob baselines on a bank switch so the dump is not
+  read as knob movement
 - [ ] Assign Plug-in (43), EQ (44), Instrument (45) plus V-pot CC 16-23
 - [ ] Render MCU ring feedback to the **Device** rings (CC 16-23 + style 24-31) in device mode
 - [x] Send A/B/C select sends 1/2/3 (Edit mode + parameter moves), and assignment buttons

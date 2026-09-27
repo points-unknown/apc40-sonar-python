@@ -1032,3 +1032,68 @@ def test_send_button_press_on_apc_selects_its_send():
 
     assert eng.knob_mode == "send_b"
     assert rec.mcu_msgs == click(mcu.NOTE_ASSIGN_SEND) + send_param(0, 5)
+
+
+# ---------------------------------------------------------------------------
+# Track Selection in Generic Mode: detected from the Device knob dump
+# ---------------------------------------------------------------------------
+
+
+def knob_dump(eng, channel, value=0):
+    for cc in range(apc.CC_DEVICE_KNOB1, apc.CC_DEVICE_KNOB1 + 8):
+        eng.on_apc_message((0xB0 | channel, cc, value))
+
+
+def settle(eng, frames=3):
+    for _ in range(frames):
+        eng.tick()
+
+
+def test_track_selection_dump_selects_that_track():
+    eng, rec, _ = make_engine()
+
+    knob_dump(eng, 2)  # Track Selection 3 pressed
+    assert rec.mcu_msgs == []  # waits for the burst to end
+    settle(eng)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_SELECT1 + 2)
+
+
+def test_pressing_the_same_track_again_selects_it_again():
+    eng, rec, _ = make_engine()
+
+    knob_dump(eng, 4)
+    settle(eng)
+    knob_dump(eng, 4)
+    settle(eng)
+
+    assert rec.mcu_msgs == click(mcu.NOTE_SELECT1 + 4) * 2
+
+
+def test_master_button_dump_selects_no_track():
+    eng, rec, _ = make_engine()
+
+    knob_dump(eng, 8)
+    settle(eng)
+
+    assert rec.mcu_msgs == []
+
+
+def test_whole_surface_dump_is_ignored():
+    eng, rec, _ = make_engine()
+
+    for channel in range(9):
+        knob_dump(eng, channel)
+    settle(eng)
+
+    assert rec.mcu_msgs == []
+
+
+def test_single_device_knob_turn_is_not_a_selection():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0xB3, apc.CC_DEVICE_KNOB1 + 2, 40))
+    eng.on_apc_message((0xB3, apc.CC_DEVICE_KNOB1 + 2, 41))
+    settle(eng)
+
+    assert rec.mcu_msgs == []

@@ -260,6 +260,18 @@ Master. The engine accepts them on any of channels 0-8 and treats the row as one
 global buttons. Their LEDs are stored per bank, so the renderer writes utility-row LEDs to
 all nine channels and they stay visible whichever bank is selected.
 
+### Track Selection in Generic Mode
+
+The Track Selection buttons send **no note** in Generic Mode. They are a local radio group:
+the APC40 lights the pressed button itself, switches its Device Control bank, and
+transmits all eight Device knob positions (CC 16-23) on that track's channel. The engine
+collects Device knob messages into a burst; once no more arrive for
+`KNOB_DUMP_QUIET_FRAMES` (2 frames, ~40 ms), a burst holding all eight knobs on exactly
+**one** channel 0-7 becomes an MCU Select for that strip. A single knob turn never sends
+all eight, the Master button (channel 8) selects no track, and a burst spanning several
+channels (a whole-surface dump) is ignored. Cakewalk only selects the track itself with
+*Select highlights track* checked in the Mackie Control preset.
+
 ### Knob smoothing
 
 The Track Control and Device Control knobs are endless encoders whose absolute value is

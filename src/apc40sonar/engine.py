@@ -111,6 +111,9 @@ ZOOM_FIT_AT = 1
 ZOOM_FIT_REARM = 10
 ZOOM_STEP_LIMIT = 4  # max zoom steps per crossfader event
 
+# Frames without Device knob messages that end a knob dump burst.
+KNOB_DUMP_QUIET_FRAMES = 2
+
 # APC40 global buttons -> MCU notes (channel 0). Cakewalk treats the MCU
 # cursor buttons as keyboard arrow keys; Bank Left/Right moves the 8-strip
 # window by 8 tracks.
@@ -223,6 +226,12 @@ class Engine:
         self._zoom_owned = False  # True while we turned zoom mode on
         self._zoom_last_frame = 0
         self._zoom_fit_armed = True
+        # Generic Mode Track Selection sends no note: the APC40 switches its
+        # Device Control bank and dumps all eight Device knob positions
+        # (CC 16-23) on the new bank's channel. A burst of those is collected
+        # here and turned into a select once it goes quiet.
+        self._knob_dump: dict[int, set[int]] = {}
+        self._knob_dump_frame = 0
 
     # ------------------------------------------------------------------
     # MCU output helpers
@@ -278,6 +287,9 @@ class Engine:
         # Device Control knobs report on the selected bank's channel (0-8) and
         # drive the V-pots in device mode.
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
+            if channel < apc.DEVICE_BANKS:
+                self._knob_dump.setdefault(channel, set()).add(cc)
+                self._knob_dump_frame = self._frame
             if channel < apc.DEVICE_BANKS and not self.mixer:
                 self._relative_knob(self._device_knob_abs, cc - apc.CC_DEVICE_KNOB1 + 1, value)
             return
@@ -495,6 +507,24 @@ class Engine:
         if self._zoom_mode:
             self._mcu_click(mcu.NOTE_ZOOM)
             self._zoom_mode = False
+
+    def _settle_knob_dump(self) -> None:
+        """Turn a finished Device knob dump into a Track Selection press.
+
+        A burst holding all eight Device knobs on exactly one channel is a
+        Track Selection press for that track (channel 8 = Master: no track).
+        A single knob turn never sends all eight, and a dump spanning several
+        channels (a whole-surface dump) is ignored.
+        """
+
+        if not self._knob_dump or self._frame - self._knob_dump_frame < KNOB_DUMP_QUIET_FRAMES:
+            return
+        dump, self._knob_dump = self._knob_dump, {}
+        if len(dump) != 1:
+            return
+        (channel, ccs), = dump.items()
+        if len(ccs) == self.tracks and channel < self.tracks:
+            self._mcu_click(APC_TRACK_SELECT_NOTE + channel)
 
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
@@ -806,6 +836,7 @@ class Engine:
         self._frame += 1
         self._settle_meter_toggle()
         self._zoom_idle()
+        self._settle_knob_dump()
         if self.meters:
             self._decay_meters()
         if not self._flashes:

@@ -33,7 +33,7 @@ panel.
 | Control | Action | LED / display | Status | Planned |
 |---|---|---|---|---|
 | **Fader** | Track volume | None (faders are not motorized) | **Live** | - |
-| **Track Selection** | Select the track | Lit on the selected track, from Cakewalk | **Live** | - |
+| **Track Selection** | Select the track in Cakewalk (detected from the knob dump the APC40 sends on each press; needs *Select highlights track* in the Mackie Control preset) | Lit on the selected track, from Cakewalk | **Live** | - |
 | **Activator** | Mute on/off (lit = **muted**, from Cakewalk) | From Cakewalk | **Live** | - |
 | **Solo** | Solo on/off | From Cakewalk | **Live** | - |
 | **Record Arm** | Arm on/off | From Cakewalk | **Live** (track 1 cannot arm: Cakewalk ignores it) | - |

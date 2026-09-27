@@ -109,8 +109,8 @@ project**, not globally. Some of Cakewalk's defaults are wrong for the APC40, so
 project needs these settings. Set them once, then save them as a preset and in your
 project template (see below) so you never have to look for them again.
 
-*Master Fader*, *F1*, *Jog Wheel Resolution*, *Protocol* and *Disable handshake* are
-set-and-forget. *Meters* is
+*Master Fader*, *F1*, *Jog Wheel Resolution*, *Select highlights track*, *Protocol* and
+*Disable handshake* are set-and-forget. *Meters* is
 different: it is a workflow choice you can flip at any time from the APC40 with
 **Shift + Detail View** (see [Meters on or off](#meters-on-or-off) below), so the preset
 only decides how each project **starts**.
@@ -124,6 +124,7 @@ listed as *Mackie Control - 1* and so on).
 | **Master Fader** | *Master Fader* group (bottom left), two dropdowns | First: **Bus**. Second: your **Master** bus | *Master*, first strip | The APC40 master fader moves Cakewalk's hidden **hardware-output** strip instead of the Master bus, so it seems to do nothing |
 | **F1** (metronome) | *Function Buttons* group, **F1:** dropdown | **Metronome During Record** (the list is Cakewalk's full command list; pick the *Metronome During Record* entry, not *During Playback*) | Unassigned | **Shift + Metronome** on the APC40 does nothing. Cakewalk's Mackie Control has no metronome button of its own, so the app sends F1 |
 | **Jog Wheel Resolution** | *Jog Wheel Resolution* group | **Measures** (or **Beats** for finer moves) | Measures | Nothing breaks. This is how far the playhead moves per Cue Level detent |
+| **Select highlights track** | *Options* group | **Checked** | Unchecked | The APC40 **Track Selection** buttons only move the Mackie surface's internal focus; the track is not selected in Cakewalk. Leave *Double-click to select* unchecked |
 | **Protocol** | *Protocol* group | **Mackie Control Universal (Cakewalk/SONAR Mode)** | Same (leave it) | *Universal Mode* renumbers buttons and ignores the modifier keys; *HUI* and *Cubase Mode* are different protocols |
 | **Disable handshake** | *Options* group | **Checked** | Checked (leave it) | apc40sonar does not answer Cakewalk's Mackie handshake, so with this unchecked Cakewalk ignores every APC40 button and fader |
 
@@ -190,6 +191,7 @@ does is Cakewalk's *Meters* setting, and you can switch it without opening any d
 | A button toggles twice per press | APC40 also set up directly in Cakewalk | Remove any APC40 device/surface in Cakewalk. Only the Mackie Control surface on the loopMIDI cables should remain |
 | Grid meters stay dark with audio playing | Cakewalk's **Meters** is Off in this project | Press **Shift + Detail View** on the APC40. `--monitor` then shows `mcu: [208, ...]` lines |
 | Master fader moves nothing (but `--monitor` shows `mcu: [232, ...]` echoes) | *Master Fader* is on type *Master* (hardware outputs), Cakewalk's default | Apply your `APC40` preset, or set **Master Fader** to **Bus** + your Master bus ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
+| Track Selection buttons light but the track is not selected in Cakewalk | *Select highlights track* is unchecked (Cakewalk's default) | Check it ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) and re-save the preset |
 | Every APC40 button and fader is ignored, but LEDs still follow Cakewalk | **Disable handshake** is unchecked | Check it again ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | Shift + Detail View does nothing (log: "sent no meters") | *Protocol* is not *Cakewalk/SONAR Mode* | Set it back ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | MCU data shows up in a MIDI track recording | Track input set to Omni | Set MIDI track inputs to your keyboard instead of *All Inputs / Omni* |
