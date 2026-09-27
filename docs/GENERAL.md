@@ -131,7 +131,7 @@ Process-environment values override the file, so a one-off run can use
 | Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
 | Rec Quantize (63, bank channel 0-8) | Note 89: Cakewalk's **Loop on/off** (see below); LED 89 -> Rec Quantize LED |
 | Metronome (65) | Mackie F2 (55): auto-punch (preset); Shift = F1 (54): metronome during record |
-| Master (80, or its bank's knob dump) | Cakewalk Track 76 / Aux 80: strips show tracks / buses (toggle, from their LEDs) |
+| Master (its bank's knob dump, channel 8) | Cakewalk Track 76 / Aux 80: strips show tracks / buses (toggle, from their LEDs) |
 | Scene 1 / 2 / 3 (82-84) | Mode: Tracking / Step Sequencer (not built) / Mixing |
 | Utility row 58-62, 64 and Shift + Nudge | Tracking editing and navigation (see *Modes and the Tracking utility row*) |
 | Stop (92), pressed twice within 0.4 s | Stop 93, then Cakewalk **Home** 90 (go to start) on the second press |
@@ -225,8 +225,8 @@ velocity 0: in marker navigation Cakewalk repeats them until it sees the release
 
 **Master** toggles the strips between tracks and buses with Cakewalk's Track 76 / Aux 80
 buttons, following their LEDs. In Generic Mode Master is part of the Track Selection radio
-group, so it may arrive as note 80 or only as the Master bank's knob dump (channel 8); a
-dump within `MASTER_DEDUP_FRAMES` of a Master note is the same press. The APC40 lights
+group: it sends **no note 80**, only the Master bank's knob dump (CC 16-23 on channel 8),
+confirmed with a `--monitor` capture on 2026-09-27. The APC40 lights
 Master itself, so the HUD shows Tracks/Buses instead of the LED.
 
 ### Crossfader zoom

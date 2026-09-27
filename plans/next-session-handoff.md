@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-Start here. State as of commit `c7ca8f5` (2026-09-27): 237 hardware-free tests pass,
+Start here. State as of 2026-09-27: 236 hardware-free tests pass,
 everything below "Built" is **verified on the user's hardware**, working tree clean.
 
 ## Read first
@@ -31,20 +31,16 @@ everything below "Built" is **verified on the user's hardware**, working tree cl
 
 ## Next, in priority order
 
-1. **Open question, tiny:** when Master is pressed, does the APC40 send note 80, the
-   channel-8 knob dump (`apc: [184, 16..23, ..]`), or both? Both are handled (deduped);
-   ask the user for a `--monitor` capture, record the answer in `GENERAL.md`, and drop the
-   unused path if one never occurs.
-2. **Mixing mode = C4 second surface** per [`c4-surface-plan.md`](c4-surface-plan.md):
+1. **Mixing mode = C4 second surface** per [`c4-surface-plan.md`](c4-surface-plan.md):
    two new loopMIDI cables (`C4_OUT_PORT` / `C4_IN_PORT`), answer the C4 handshake (it has
    no "Disable handshake"), set split/assignment at connect, `c4` module, Device knobs ->
    C4 row 1 with rings on the current bank's channel, 58-61 in Mixing = parameter page /
    next plug-in / bypass, capture C4 LCD text for the HUD. Needs the user to add cables
    and a *Mackie Control C4* surface in Cakewalk.
-3. **Reconnect handling**: recover when loopMIDI mutes/drops a cable or the APC40 USB
+2. **Reconnect handling**: recover when loopMIDI mutes/drops a cable or the APC40 USB
    disconnects, without restarting the app.
-4. **Readable `--monitor`**: decode notes/CCs into names ("Undo", "Marker nav + FF").
-5. **Step sequencer** (Scene 2): fully specified in `TODO.md`; needs MIDI clock research.
+3. **Readable `--monitor`**: decode notes/CCs into names ("Undo", "Marker nav + FF").
+4. **Step sequencer** (Scene 2): fully specified in `TODO.md`; needs MIDI clock research.
 
 ## Critical Cakewalk / APC40 facts (learned the hard way)
 
@@ -71,6 +67,7 @@ Earlier sessions sparse-cloned it into the session scratchpad; re-clone it when 
   positions); utility row and Device knobs arrive on the selected bank's channel 0-8;
   Record Arm/Solo/Activator and utility 58-61 **latch** (act on both edges); 62-65 and
   Scene buttons are momentary and the APC40 may blank their LED on release (re-assert).
+  Master sends no note at all, only its channel-8 knob dump.
 - **loopMIDI flood protection** mutes a cable (`[muted]`) on message bursts; only a
   loopMIDI restart clears it. Keep per-frame message budgets (`JOG_BUDGET_PER_FRAME`).
 

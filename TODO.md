@@ -13,7 +13,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 237 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 236 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -35,7 +35,7 @@ modes.
 
 - [x] Scene 1/2/3 select the mode; lit Scene LED; always Tracking at startup (done)
 - [x] Loop/Punch (62-65) are the same in Mixing; only 58-61 become FX controls (done)
-- [x] Master button (80) = toggle the 8 strips between Tracks and Buses (Cakewalk Mackie
+- [x] Master button (sends only its channel-8 knob dump, no note) = toggle the 8 strips between Tracks and Buses (Cakewalk Mackie
       Track 76 / Aux 80); shown in the HUD, since the APC40 owns Master's LED. Cakewalk's
       Mackie surface cannot *select* a bus (Select highlights track only works on tracks)
       (done)

@@ -240,10 +240,6 @@ NAV_LEDS = {
     mcu.NOTE_CW_PUNCH_NAV: "punch",
 }
 
-# Master (80) also arrives as the APC40's Master-bank knob dump; a dump this
-# soon after a Master note is the same press.
-MASTER_DEDUP_FRAMES = 15
-
 TOAST_HISTORY = 8
 
 
@@ -339,7 +335,6 @@ class Engine:
         self._cw_edit = False
         self._cw_nav: str | None = None  # Cakewalk navigation mode, from its LEDs
         self._cw_buses = False  # strips show buses, from Cakewalk's Aux LED
-        self._master_note_frame: int | None = None
         # Operating mode, selected with the Scene buttons; always Tracking at start.
         self.mode = "tracking"
         # Last loop LED state from Cakewalk, shown on the Metronome button.
@@ -643,9 +638,6 @@ class Engine:
             self.set_mode(SCENE_MODE[note])
         elif note in apc.SCENE_NOTES:
             self._render_mode_leds()  # Scenes 4-5: free
-        elif note == apc.NOTE_MASTER:
-            self._master_note_frame = self._frame
-            self.toggle_strip_type()
         elif note == apc.NOTE_TAP_TEMPO:
             self._flash_global(apc.NOTE_TAP_TEMPO)
 
@@ -729,10 +721,8 @@ class Engine:
             return
         if channel < self.tracks:
             self._select_strip(channel)
-        elif channel == apc.DEVICE_BANKS - 1:  # Master
-            last = self._master_note_frame
-            if last is None or self._frame - last > MASTER_DEDUP_FRAMES:
-                self.toggle_strip_type()
+        elif channel == apc.DEVICE_BANKS - 1:  # Master sends no note, only this dump
+            self.toggle_strip_type()
 
     def _select_strip(self, strip: int) -> None:
         self._mcu_click(APC_TRACK_SELECT_NOTE + strip)

@@ -1694,40 +1694,36 @@ def test_mixing_mode_reserves_58_to_61_but_keeps_the_rest():
     assert rec.mcu_msgs == cw_press(mcu.NOTE_CW_LOOP)
 
 
-def test_master_note_toggles_tracks_and_buses():
+def press_master(eng):
+    """Master sends no note in Generic Mode, only its bank's knob dump."""
+    knob_dump(eng, 8)
+    settle(eng)
+
+
+def test_master_toggles_tracks_and_buses():
     eng, rec, _ = make_engine()
 
-    press(eng, apc.NOTE_MASTER)
+    press_master(eng)
     assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
     eng.on_mcu_message((0x90, mcu.NOTE_CW_AUX, 127))  # Cakewalk confirms buses
 
-    press(eng, apc.NOTE_MASTER)
+    press_master(eng)
     assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX) + click(mcu.NOTE_CW_TRACK)
 
 
-def test_master_bank_dump_toggles_strips_when_no_master_note_arrived():
-    eng, rec, _ = make_engine()
-
-    knob_dump(eng, 8)
-    settle(eng)
-
-    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
-
-
-def test_master_note_and_its_dump_toggle_only_once():
+def test_master_note_alone_does_nothing():
     eng, rec, _ = make_engine()
 
     press(eng, apc.NOTE_MASTER)
-    knob_dump(eng, 8)
     settle(eng)
 
-    assert rec.mcu_msgs == click(mcu.NOTE_CW_AUX)
+    assert rec.mcu_msgs == []
 
 
 def test_hud_snapshot_reports_mode_and_buses():
     eng, _, _ = make_engine()
     eng.set_mode("mixing")
-    press(eng, apc.NOTE_MASTER)
+    press_master(eng)
 
     snap = eng.hud_snapshot()
 
