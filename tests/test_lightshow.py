@@ -37,3 +37,16 @@ def test_play_runs_all_frames_and_ends_dark():
 
 def test_frame_count_is_stable():
     assert len(list(lightshow.frames())) == 14
+
+
+def test_goodbye_ends_with_the_panel_dark():
+    sent: list[tuple[int, ...]] = []
+    out = apc.Apc40Output(sent.append)
+
+    lightshow.goodbye(out, sleep=lambda _s: None)
+
+    assert any(m[2] == apc.CLIP_RED for m in sent)  # the red fill played
+    final: dict[tuple[int, int], int] = {}
+    for status, number, value in sent:
+        final[(status & 0x0F, number)] = value if status & 0xF0 in (0x90, 0xB0) else 0
+    assert all(value == 0 for value in final.values())

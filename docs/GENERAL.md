@@ -120,6 +120,7 @@ Process-environment values override the file, so a one-off run can use
 | Track Select (note 51) | Select notes 24-31 |
 | Clip Stop (note 52) | V-pot push notes 32-39 |
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
+| Nudge - / + (101/100) | Rewind 91 / Fast Forward 92, press **and** release forwarded (release as Note On velocity 0): Cakewalk moves by the preset's Transport Resolution and repeats while held |
 | Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
 | Shift + Bank Select Left / Right | Channel Left 48 / Channel Right 49 (window moves by 1) |
 | Bank Select Up / Down (94/95) | Cursor Up 96 / Down 97 (Cakewalk treats these as arrow keys) |
@@ -353,6 +354,13 @@ Cakewalk lights the strip's Select LED and shows `Track N: "name"`, so offset =
 N - 1 - strip. Bank/Channel presses shift it provisionally (shown as `Trk ~9-16`) until
 the next select confirms it; before the first select it shows `Trk ?`. The Metronome
 (F1) toggle has no Cakewalk feedback, so the HUD can only echo that it was pressed.
+
+
+### Exit
+
+On Ctrl+C the app plays a short exit animation (`lightshow.goodbye`: the grid fills
+red, then drains top to bottom) and leaves every LED and ring off, so a dark panel means
+the app is not running. A failure while drawing it is logged and does not block exit.
 
 ## Logging
 

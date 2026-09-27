@@ -97,6 +97,39 @@ def frames() -> Iterator[Callable[[apc.Apc40Output], None]]:
     yield lambda out: out.clear_all()
 
 
+def goodbye_frames() -> Iterator[Callable[[apc.Apc40Output], None]]:
+    """Exit animation: the grid fills red, then drains away top to bottom."""
+
+    def fill(out: apc.Apc40Output) -> None:
+        for track in range(apc.TRACKS):
+            for row in range(1, apc.ROWS + 1):
+                out.clip_pad(track, row, apc.CLIP_RED, force=True)
+            out.clip_stop(track, apc.CLIP_RED, force=True)
+
+    def drain(out: apc.Apc40Output, rows: int) -> None:
+        for track in range(apc.TRACKS):
+            for row in range(1, rows + 1):
+                out.clip_pad(track, row, apc.CLIP_OFF, force=True)
+
+    yield fill
+    for rows in range(1, apc.ROWS + 1):
+        yield lambda out, r=rows: drain(out, r)
+    yield lambda out: out.clear_all()
+
+
+def goodbye(
+    apc_out: apc.Apc40Output,
+    *,
+    frame_ms: int = FRAME_MS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Play the exit animation and leave the panel dark (app not running)."""
+
+    for frame in goodbye_frames():
+        frame(apc_out)
+        sleep(frame_ms / 1000.0)
+
+
 def play(
     apc_out: apc.Apc40Output,
     *,

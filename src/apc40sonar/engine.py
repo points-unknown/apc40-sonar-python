@@ -146,6 +146,14 @@ APC_SHIFT_BUTTONS = {
 # magnitude, so a fast turn is sent as several single steps.
 CUE_JOG_STEP_LIMIT = 4
 
+# APC40 buttons forwarded press *and* release, for MCU buttons Cakewalk acts
+# on for as long as they are held. Rewind / Fast Forward move the now time by
+# the Mackie preset's Transport Resolution and repeat while held.
+APC_HOLD_BUTTONS = {
+    apc.NOTE_NUDGE_MINUS: mcu.NOTE_REWIND,
+    apc.NOTE_NUDGE_PLUS: mcu.NOTE_FORWARD,
+}
+
 # Buttons whose LED flashes to acknowledge a press (no host feedback exists).
 APC_FLASH_ON_PRESS = frozenset({apc.NOTE_LEFT, apc.NOTE_RIGHT})
 
@@ -461,8 +469,7 @@ class Engine:
             return
 
         if note == apc.NOTE_SHIFT:
-            self.shift = pressed
-            self.apc.global_note(apc.NOTE_SHIFT, apc.LED_ON if pressed else apc.LED_OFF, force=True)
+            self.shift = pressed  # the APC40's Shift has no LED; the HUD shows it
             return
 
         # Shift layer: mapped combos replace the button's normal action;
@@ -481,6 +488,13 @@ class Engine:
 
         if note == apc.NOTE_STOP and pressed:
             self._on_stop_press()
+            return
+
+        # Hold-through buttons: Cakewalk keeps rewinding / fast-forwarding while
+        # the button is down, so forward both edges (release as Note On 0).
+        held = APC_HOLD_BUTTONS.get(note)
+        if held is not None:
+            self._send_mcu(mcu.button_press(held) if pressed else mcu.cakewalk_release(held))
             return
 
         mcu_note = APC_GLOBAL_BUTTONS.get(note)

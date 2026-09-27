@@ -511,7 +511,7 @@ def test_cakewalk_release_is_note_on_velocity_zero():
     assert mcu.cakewalk_release(mcu.NOTE_M2) == (0x90, 71, 0)
 
 
-def test_shift_lights_while_held_and_sends_nothing():
+def test_shift_is_tracked_and_sends_nothing():
     eng, rec, _ = make_engine()
 
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
@@ -519,7 +519,7 @@ def test_shift_lights_while_held_and_sends_nothing():
     eng.on_apc_message((0x80, apc.NOTE_SHIFT, 0))
     assert not eng.shift
 
-    assert rec.apc_msgs == [(0x90, apc.NOTE_SHIFT, 127), (0x80, apc.NOTE_SHIFT, 0)]
+    assert rec.apc_msgs == []  # the APC40's Shift has no LED
     assert rec.mcu_msgs == []
 
 
@@ -1410,3 +1410,33 @@ def test_non_lcd_sysex_is_ignored():
     eng.on_mcu_message((0xF0, 0x7E, 0x00, 0x06, 0x01, 0xF7))
     assert not eng.hud_snapshot().lcd_seen
     assert rec.apc_msgs == [] and rec.mcu_msgs == []
+
+
+# ---------------------------------------------------------------------------
+# Nudge -/+ = Rewind / Fast Forward, held through
+# ---------------------------------------------------------------------------
+
+
+def test_nudge_forwards_press_and_release_as_rewind_and_forward():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_NUDGE_MINUS, 127))
+    eng.on_apc_message((0x80, apc.NOTE_NUDGE_MINUS, 127))
+    eng.on_apc_message((0x90, apc.NOTE_NUDGE_PLUS, 127))
+    eng.on_apc_message((0x80, apc.NOTE_NUDGE_PLUS, 127))
+
+    # Release as Note On 0: Cakewalk keeps moving until it sees the release.
+    assert rec.mcu_msgs == [
+        (0x90, mcu.NOTE_REWIND, 127), (0x90, mcu.NOTE_REWIND, 0),
+        (0x90, mcu.NOTE_FORWARD, 127), (0x90, mcu.NOTE_FORWARD, 0),
+    ]
+
+
+def test_nudge_held_sends_only_the_press_until_released():
+    eng, rec, _ = make_engine()
+
+    eng.on_apc_message((0x90, apc.NOTE_NUDGE_PLUS, 127))
+    for _ in range(10):
+        eng.tick()
+
+    assert rec.mcu_msgs == [(0x90, mcu.NOTE_FORWARD, 127)]

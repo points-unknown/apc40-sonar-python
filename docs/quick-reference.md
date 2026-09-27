@@ -23,7 +23,7 @@ panel.
 |---|---|---|---|---|---|
 | **Knob mode** | Pan, Send A, Send B, Send C | Pan / Send A / Send B / Send C buttons | Lit mode button; ring style (pan vs. fill) | Pan | Track Control knobs + rings |
 | **Grid mode** | Meters, Pads | `METERS=on/off` in `.env` (restart) | Grid shows meters or stays dark | Meters | Clip grid, Clip Stop LEDs |
-| **Shift layer** | Held / released | Hold **Shift** | Shift LED lit while held | Released | Buttons that have a Shift combo |
+| **Shift layer** | Held / released | Hold **Shift** | HUD `SHIFT` badge (the APC40's Shift has no LED) | Released | Buttons that have a Shift combo |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
 | *Knob target* (planned) | Mix, Device | Not built | - | Mix | Which knob bank drives the MCU V-pots |
 | *Grid modes* (planned) | Meters, step sequencer, drum pads, clip launch | Scene 1-5 (Scene 1 = meters, Scene 2 = sequencer) | Lit Scene LED | Meters | Clip grid, Clip Stop row, Bank Select arrows (sequencer) |
@@ -37,7 +37,7 @@ panel.
 | **Activator** | Mute on/off (lit = **muted**, from Cakewalk) | From Cakewalk | **Live** | - |
 | **Solo** | Solo on/off | From Cakewalk | **Live** | - |
 | **Record Arm** | Arm on/off | From Cakewalk | **Live** (track 1 cannot arm: Cakewalk ignores it) | - |
-| **Clip Stop** | MCU V-pot push for this strip | Meters mode: red = clip latched. Pads mode: off | **Live** | - |
+| **Clip Stop** | **Reset this track's Track Control knob to its default**: in Pan mode re-centers the pan; in Send A / B / C mode resets that send's level to its default | Meters mode: red = this track clipped (stays lit until **Stop All Clips**). Pads mode: off | **Live** | - |
 
 The Activator LED follows Cakewalk's mute state, so lit means muted. This is the
 opposite of Ableton, where lit means active.
@@ -88,7 +88,7 @@ last send.
 
 | Button | Action | LED | Status |
 |---|---|---|---|
-| **Pan** | Knob mode = Pan (MCU Assign Pan) | Only the active mode button is lit | **Live** |
+| **Pan** | Knob mode = Pan: the Track Control knobs set each track's pan | Only the active mode button is lit | **Live** |
 | **Send A / B / C** | Knob mode = send 1 / 2 / 3 level. Pressing the lit one again re-selects its send | Only the active mode button is lit | **Live** |
 
 ## Utility row (under the Device Control knobs)
@@ -116,10 +116,10 @@ These buttons work, and their LEDs show, whichever track (or Master) is selected
 | **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...) | Flashes on press | **Live** | Page steps in the step sequencer |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
 | **Bank Select Up / Down** | Cakewalk arrow key Up / Down | - | **Live** | Page lanes in the step sequencer |
-| **Shift** | Modifier (hold) | Lit while held | **Live** | More Shift combos (see below) |
+| **Shift** | Modifier (hold) | No LED on the APC40; shown in the HUD | **Live** | Tap = one-shot, double-tap = lock (see TODO) |
 | **Tap Tempo** | - (LED flash only) | Flash | *Provisional* | Tap tempo keystroke (needs keystroke bridge) |
-| **Nudge + / -** | - | - | `-` | MCU Rewind/Forward or Nudge |
-| **Master** (Track Selection) | - (LED stays lit) | Lit | *Provisional* | Select master bus or MCU Flip |
+| **Nudge - / +** | **Rewind / Fast Forward** by the Mackie preset's *Transport Resolution* (Measures). Tap = one step; **hold = keeps moving** until released | - | **Live** | Shift + Nudge = selection start / end |
+| **Master** (Track Selection) | - (LED stays lit) | Lit | *Provisional* | Toggle the 8 strips between Tracks and Buses |
 
 ## Shift combos
 
@@ -156,6 +156,11 @@ off with `--no-hud` or `HUD=off` in `.env`. Settings (`HUD_POSITION`,
 
 Mouse: drag to move; right-click for Compact / Expanded, Opacity, Quit HUD. Clicking it
 never takes keyboard focus from Cakewalk.
+
+## Exit
+
+On Ctrl+C the grid fills red and drains away top to bottom, then the whole panel
+goes dark: a dark APC40 means the app is not running.
 
 ## Startup state
 

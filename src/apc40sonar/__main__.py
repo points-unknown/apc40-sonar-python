@@ -315,6 +315,10 @@ def _run(args: argparse.Namespace) -> int:
         except KeyboardInterrupt:
             print("\nstopping")
             log.info("stopped by user")
+            try:
+                lightshow.goodbye(apc_out)  # leave the panel dark: app not running
+            except Exception:  # noqa: BLE001 - a failed farewell must not block exit
+                log.exception("exit animation failed")
         return 0
     finally:
         if hud is not None:

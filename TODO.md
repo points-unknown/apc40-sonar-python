@@ -11,28 +11,66 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 143 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 207 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
-### Utility row (notes 58-65)
+### Modes (Scene buttons)
 
-- [ ] Clip/Track (58): switch the Track Control knobs between track and clip context
-- [ ] Device On/Off (59): focused plug-in bypass, with the LED reflecting state
-- [ ] Left / Right arrows (60/61): Device Control knob page or parameter bank
-- [ ] Detail View (62): local view toggle or keystroke (Shift + Detail View = Cakewalk meters on/off, done)
-- [ ] Rec Quantize (63): keystroke (`Ctrl+Alt+R`) with local flash
-- [ ] MIDI Overdub (64): keystroke (`Ctrl+Alt+O`) with the Overdub LED from feedback
-- [x] Metronome (65): Cakewalk Loop on/off (note 89; Cakewalk mode has no Click), LED = loop
-      state. Shift + Metronome = metronome during record via Mackie F1, assigned to
-      *Metronome During Record* in the preset (done)
+Workflow: **Tracking** (record live parts) -> **Step Sequencer** (beats) -> **Mixing** (FX).
+The Scene buttons select the mode; the lit Scene LED shows it. Only the utility row (and
+the grid in the sequencer) change per mode. Faders, strip buttons, Pan/Send knobs,
+transport, Cue (playhead), crossfader (zoom), Bank arrows, Stop x2 and the meters grid work
+the same in every mode, and **Master toggles the strips between Tracks and Buses** in all
+modes.
 
-### Scene buttons (notes 82-86)
+| Scene | Mode | Status |
+|---|---|---|
+| 1 | **Tracking** - utility row = editing / loop / punch (below) | To build |
+| 2 | **Step Sequencer** (below) | Future |
+| 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Needs the C4 surface |
+| 4-5 | Free | - |
 
-- [ ] Scenes select the **grid mode**: Scene 1 = meters (or pads with `METERS=off`),
-      Scene 2 = step sequencer, Scenes 3-5 reserved for future grid modes (drum pads,
-      clip launch). The lit Scene LED shows the active grid mode
-- [ ] Screensets / MCU F1-F5 move elsewhere (e.g. Shift + Scene) if still wanted
+- [ ] Scene 1/2/3 select the mode; lit Scene LED; mode at startup (TBD: Tracking or last
+      used)
+- [ ] Decide whether Loop/Punch (62-65) stay the same in Mixing mode (proposed: yes; only
+      58-61 become FX controls)
+- [ ] Master button (80) = toggle the 8 strips between Tracks and Buses (Cakewalk Mackie
+      Track 76 / Aux 80), LED lit on Buses. Cakewalk's Mackie surface cannot *select* a bus
+      (Select highlights track only works on tracks)
+
+### Tracking mode (Scene 1)
+
+Every button has one fixed meaning; the app drives Cakewalk's navigation modes (Marker 84,
+Loop 85, Select 86, Punch 87) behind the scenes and always returns to Normal navigation.
+
+| Button | Press | Shift + press |
+|---|---|---|
+| Clip/Track (58) | Undo (MCU 82) | Redo (MCU 83) |
+| Device On/Off (59) | Insert marker (M1 + Marker) | *(free)* |
+| < / > (60/61) | Previous / next marker (Marker nav + Rew/FF) | Go to selection start / end (Select nav + Rew/FF) |
+| Detail View (62) | Loop <- selection (M2 + Loop) | Cakewalk meters on/off (done) |
+| Rec Quantize (63) | **Loop on/off** (Cakewalk note 89; LED = loop state) | *(free)* |
+| MIDI Overdub (64) | Punch <- selection (M2 + Punch) | *(free)* |
+| Metronome (65) | **Auto-punch on/off** (Mackie F-key assigned in the preset; no LED - Cakewalk reports no auto-punch state) | Metronome during record (F1, done) |
+| Nudge - / + | Rewind / Fast Forward, held through (done) | Selection start / end = playhead (Select nav + M1 + Rew/FF) |
+
+- [ ] Build the table above (Loop on/off and its LED move from 65 to 63)
+- [ ] Preset: pick one of F3-F8 for Cakewalk's auto-punch toggle; add it to the setup guide
+- [x] Nudge - / + = Rewind / Fast Forward, press and release forwarded so holding keeps
+      moving (done)
+
+### Shift latching
+
+| Action | Shift state | HUD |
+|---|---|---|
+| Hold Shift + press | Shifted while held | `SHIFT` |
+| Tap Shift | One-shot: the next **button** press is shifted (any button, used up either way); expires after `SHIFT_ONESHOT_MS` (default 3000) | `SHIFT 1x` |
+| Double-tap Shift (~0.4 s) | Locked until the next tap | `SHIFT LOCK` |
+
+- [ ] Implement; the engine exposes `off / held / once / locked` for the HUD. The APC40's
+      Shift has **no LED** (HUD only)
+- [ ] Knobs/faders see only held or locked Shift for now (TBD)
 
 ### Step sequencer grid mode (Scene 2)
 
@@ -101,23 +139,23 @@ Tasks:
 - [ ] Later ideas: clear pattern (e.g. Shift + Stop All Clips), per-lane mute, copy page,
       swing, per-lane step length, internal clock for jamming without the transport
 
-### Device / plug-in mode
+### Mixing mode (Scene 3)
 
-- [ ] Mode switch between **mix mode** (Track Control knobs -> V-pots) and **device mode**
-  (Device Control knobs -> V-pots). The switch exists in the engine (`Engine.mixer`) but
-  no button toggles it yet, so the Device Control knobs currently do nothing
-  - [ ] Choose the button that toggles mix/device (e.g. Clip/Track 58 or Shift + Pan)
-  - [x] Handle Mode 0 Device Control banking: the knobs and the utility row (58-65)
-        report on the **selected track's channel** (0-7, Master = 8); the engine accepts
-        channels 0-8 and writes utility-row LEDs to all nine banks (done)
-- [x] Device knob baselines are kept per APC40 bank, so a bank switch's knob dump is not
-  read as movement, and Device ring feedback is written on the current bank's channel
-  (done)
-- [ ] Assign Plug-in (43), EQ (44), Instrument (45) plus V-pot CC 16-23
-- [ ] Render MCU ring feedback to the **Device** rings (CC 16-23 + style 24-31) in device mode
-- [x] Send A/B/C select sends 1/2/3 (Edit mode + parameter moves), and assignment buttons
-  are only pressed when switching, so the knobs never flip to channel-strip layout (done)
-  - [x] Verified on hardware
+Plan: [`plans/c4-surface-plan.md`](plans/c4-surface-plan.md). A Cakewalk *Mackie Control
+C4* second surface drives the 8 Device Control knobs, so plug-in control works alongside
+Pan/Sends on the top knobs (one Mackie surface has only one row of 8 V-pots). The C4
+follows the selected track/bus; Master toggles Tracks/Buses for bus FX.
+
+- [ ] C4 surface per the plan: two loopMIDI cables (`C4_OUT_PORT` / `C4_IN_PORT`), answer
+      the C4 handshake, set split/assignment at connect, `c4` module, Device knobs -> C4
+      row 1 with rings on the current bank's channel
+- [ ] Utility row in Mixing: < / > = parameter page (Shift = +/-1), Clip/Track = next
+      plug-in (Shift = previous), Device On/Off = bypass if a command can be bound
+- [ ] Capture C4 LCD text (parameter names/values) for the HUD
+- [ ] Setup guide + GENERAL.md for the second surface
+- [x] Device knob baselines per APC40 bank; Device ring feedback on the current bank's
+      channel (done)
+- [x] Send A/B/C select sends 1/2/3 without flipping the knob layout (done, verified)
 
 ### Navigation and transport
 
@@ -132,32 +170,28 @@ Tasks:
       one step per `ZOOM_STEP_UNITS`, capped at 4 per event; fully left = fit project via
       Cakewalk's built-in Zoom + M4 + Right (no F2 preset assignment needed)
   - [x] Verified on hardware; `ZOOM_STEP_UNITS` default tuned to 6
-- [ ] Rewind/Forward, Cycle, Punch/Drop, Nudge, Zoom, Scrub, Markers
 - [x] Bank Select arrows decided: Left/Right = bank, Shift + Left/Right = channel,
       Up/Down = Cakewalk arrow keys (done). In step-sequencer mode they will page steps
       (Left/Right) and lanes (Up/Down) instead
-- [ ] Nudge + / - (100/101): unassigned; candidates are MCU Rewind/Forward or Nudge
 - [ ] Tap Tempo (99): only flashes its LED; needs the keystroke bridge for real tap tempo
 - [x] Cue Level knob (CC 47) -> MCU jog (CC 60): moves the playhead by the preset's Jog
       Wheel Resolution (done). Idea: Shift + Cue Level for finer steps (hold M2 = beats)
 - [x] Stop pressed twice quickly -> Cakewalk Home (go to start) (done)
-- [ ] Master button (80): only stays lit; candidates are select the master bus or MCU Flip.
-      Note it also switches the Device Control bank to channel 8 in Mode 0
-- [ ] Footswitches 1 / 2 (CC 64 / 67): unassigned; candidates are Play/Stop and Record
+- Footswitches 1 / 2 (CC 64 / 67): not planned (unused)
 - [x] Removed the Rec Quantize "Cycle" LED placeholder: in Cakewalk mode LED 86 is the
       Select-navigation mode, and loop state is already on the Metronome LED
-- [ ] Shift as a modifier for alternate button functions (layer in place; Shift + Detail View mapped)
-- [ ] Track Control knob buttons (the switches under the knobs)
+- [ ] Check: the original APC40's Track Control knobs appear to have no push switches;
+      drop this idea if confirmed on the hardware
 
-## Keystroke bridge (part of step 8/9)
+## Keystroke bridge (only if still needed)
 
-- [ ] Choose and add an input-injection dependency (`pydirectinput` or `pynput`)
-- [ ] Assign the dedicated conflict-free keymap in Cakewalk (see
-      [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md))
-- [ ] Implement a `keys` module: emit press/release sequences for a combo
-- [ ] Wire the keyboard-only commands: tap tempo, auto punch, redo, quantize, loop from
-      selection, selection start/end, split, MIDI overdub, record quantize, view toggles,
-      screensets, plug-in bypass
+Most keyboard-only ideas turned out to be reachable over Mackie Control (undo/redo,
+markers, loop/punch from selection, selection start/end). What remains:
+
+- [ ] Tap tempo (99): needs a keystroke; only flashes its LED today
+- [ ] If built: add `pydirectinput` or `pynput`, a dedicated conflict-free Cakewalk keymap
+      (see [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md)), and a
+      `keys` module
 
 ## Step 9 - polish and robustness
 
@@ -165,7 +199,8 @@ Tasks:
 - [ ] Move the control mapping into the config file so functions can be reassigned without code
 - [ ] Decoded `--monitor` (human-readable note/CC names) alongside the raw dump
 - [ ] Configurable log level and log rotation size
-- [ ] Shutdown behavior: decide whether to leave the ready state or clear the panel on exit
+- [x] Shutdown: exit animation (grid fills red, drains top to bottom), then the panel is
+      left dark so it is obvious the app is not running (done)
 - [ ] Fallback for Windows MIDI Services loopback endpoints when loopMIDI is unavailable
 - [x] Refresh the MIDIMonster-era wording in
       [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md) to the Python app
@@ -176,40 +211,14 @@ Ordered roughly by value-to-effort:
 
 - [x] **Track level meters** - MCU channel-pressure meters render as a 5-segment bar per
       track on the clip grid, with a latched clip indicator on Clip Stop (done; `METERS`).
-- [ ] **Follow the selected plug-in (auto-map)** - on track/plug-in selection, point the
-      Device Control knobs at the focused plug-in's parameters and show names via a
-      small on-screen overlay or log. Makes device mode genuinely useful.
-- [ ] **Second surface: Mackie Control C4 for the Device Control knobs** - add a
-      Cakewalk *Mackie Control C4* surface beside the main *Mackie Control* so the
-      Device Control knobs get dedicated plug-in control while the Track Control knobs stay
-      on pan/sends (no mix/device mode switch; see "V-pot multiplexing" in
-      [`docs/cakewalk-command-matrix.md`](docs/cakewalk-command-matrix.md)). Pairs with the
-      auto-map item above. Keep the main surface as regular Mackie Control; XT and C4 are
-      add-ons, not replacements.
-  - [ ] Research the C4 protocol (SysEx device ID, V-pot CC/note layout for the 4 encoder
-        rows, ring feedback, LCD) and what Cakewalk's C4 plug-in modes expose
-  - [ ] Two more loopMIDI cables (e.g. `APC40-C4-IN` / `APC40-C4-OUT`) plus
-        `C4_OUT_PORT` / `C4_IN_PORT` keys in `.env`; opened best-effort like the MCU pair
-  - [ ] `c4` encoder/decoder module; route Device Control knobs (CC 16-23) to C4 row 1 and
-        render C4 ring feedback on the Device rings (CC 16-23 + style 24-31)
-  - [ ] Decide what Left/Right arrows (60/61) and Device On/Off (59) do in C4 context
-        (parameter page, bypass)
-  - [ ] Update `docs/setup-loopmidi-and-cakewalk.md` and `docs/GENERAL.md` with the
-        optional second surface
+- [ ] **Second surface: Mackie Control C4** - now the Mixing mode plan (above).
 - [x] **Send-level control with rings** - Send A/B/C buttons plus the Track Control knobs
       set send 1/2/3 levels, with the rings showing the send amount (done).
 - [ ] **Session/bank overview on the grid** - use the 8x5 grid to show which bank of tracks
       is active and which clips/scenes exist, instead of blank pads.
 - [ ] **Shift modifiers** - Shift + strip button = alternate action (e.g. Shift+Mute =
       clear all mutes; Shift+Scene = record-enable scene).
-- [ ] **Screensets on Scene buttons** - one-press workspace switching; remember the last one.
-- [ ] **Transport extras** - Cycle/loop toggle, punch, marker jump, zoom, scrub mapped to
-      free buttons with feedback where MCU provides it.
-- [ ] **Grid modes** - step sequencer (planned in detail under Step 8), drum-pad mode (send
-      notes to an instrument track) and clip-launch mode, matching the
-      `docs/cakewalk-command-matrix.md` specialization. Selected with the Scene buttons.
-- [ ] **Metronome and Overdub LEDs** - faithful state from MCU feedback (partly done for
-      Metronome; add Overdub).
+- [ ] **More grid modes** - drum-pad and clip-launch modes on free Scene buttons (4-5).
 - [ ] **Template + setup doc** - a ready-made Cakewalk project template (tracks, keymap,
       surface config) so setup is one import.
 - [ ] **Performance pass** - throttle/coalesce feedback, batch LED writes, and cap per-frame
