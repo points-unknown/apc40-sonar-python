@@ -169,7 +169,9 @@ class HudProcess:
         backoff: float = 2.0,
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
         clock: Callable[[], float] = time.monotonic,
+        name: str = "HUD",
     ) -> None:
+        self.name = name
         self.argv = list(argv)
         self.max_restarts = max_restarts
         self.backoff = backoff
@@ -187,10 +189,10 @@ class HudProcess:
         try:
             self._proc = self._popen(self.argv, **kwargs)
         except OSError as exc:
-            log.warning("cannot start the HUD: %s", exc)
+            log.warning("cannot start the %s: %s", self.name, exc)
             self._proc = None
             return False
-        log.info("HUD started (pid %s)", getattr(self._proc, "pid", "?"))
+        log.info("%s started (pid %s)", self.name, getattr(self._proc, "pid", "?"))
         return True
 
     def poll(self) -> None:
@@ -206,12 +208,12 @@ class HudProcess:
             self._proc = None
             if code == 0:
                 # Quit from its own menu: the user closed it on purpose.
-                log.info("HUD closed")
+                log.info("%s closed", self.name)
                 self._stopped = True
                 return
-            log.warning("HUD exited with code %s", code)
+            log.warning("%s exited with code %s", self.name, code)
             if self._restarts >= self.max_restarts:
-                log.warning("HUD gave up after %d restarts", self._restarts)
+                log.warning("%s gave up after %d restarts", self.name, self._restarts)
                 self._stopped = True
                 return
             self._retry_at = now + self.backoff * (2 ** self._restarts)

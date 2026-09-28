@@ -39,6 +39,20 @@ Recognized keys (all optional; defaults match the documented topology):
     NUDGE_STEP        playhead move per Nudge press    default: 1 measure
     NUDGE_REPEAT_MS   repeat interval while Nudge held default: 150
     SHIFT_ONESHOT_MS  tapped Shift expires after       default: 3000
+    SEQ_OUT_PORT      sequencer notes, app -> Cakewalk default: APC40-SEQ
+    CLOCK_IN_PORT     MIDI clock, Cakewalk -> app      default: APC40-CLOCK
+    SEQ_NOTES         one MIDI note per lane           default: GM drums (10 lanes)
+    SEQ_CHANNEL       MIDI channel 1-16 for all lanes  default: 10
+    SEQ_STEPS         pattern length in 1/16 steps     default: 16
+    SEQ_VELOCITIES    normal accent soft               default: 100 127 60
+    SEQ_EDITOR        editor window in Scene 2          default: on
+    SEQ_EDITOR_PORT   editor UDP port (commands: +1)    default: 47041
+    SEQ_DIR           saved pattern + .mid exports      default: patterns
+    SEQ_DISPLAY_LEAD_MS  playhead drawn this far ahead  default: 40
+
+SEQ_NOTES / SEQ_CHANNEL / SEQ_STEPS only shape a new pattern: once the editor
+or the APC40 changed it, ``SEQ_DIR/current.json`` is loaded instead. A
+relative ``SEQ_DIR`` is relative to the ``.env`` file's folder.
 
 Playhead steps are ``<count> <unit>``: unit ``measure``, ``beat``, ``tick``
 (1/960 beat at Cakewalk's default resolution) or ``jog`` (the Mackie preset's
@@ -80,6 +94,16 @@ DEFAULTS = {
     "NUDGE_STEP": "1 measure",
     "NUDGE_REPEAT_MS": "150",
     "SHIFT_ONESHOT_MS": "3000",
+    "SEQ_OUT_PORT": "APC40-SEQ",
+    "CLOCK_IN_PORT": "APC40-CLOCK",
+    "SEQ_NOTES": "36 38 42 46 39 37 45 47 50 49",
+    "SEQ_CHANNEL": "10",
+    "SEQ_STEPS": "16",
+    "SEQ_VELOCITIES": "100 127 60",
+    "SEQ_EDITOR": "on",
+    "SEQ_EDITOR_PORT": "47041",
+    "SEQ_DIR": "patterns",
+    "SEQ_DISPLAY_LEAD_MS": "40",
 }
 
 STEP_UNITS = ("measure", "beat", "tick", "jog")
@@ -123,6 +147,16 @@ class Config:
     nudge_step: tuple[int, str] = (1, "measure")
     nudge_repeat_ms: int = 150
     shift_oneshot_ms: int = 3000
+    seq_out_port: str = "APC40-SEQ"
+    clock_in_port: str = "APC40-CLOCK"
+    seq_notes: tuple[int, ...] = (36, 38, 42, 46, 39, 37, 45, 47, 50, 49)
+    seq_channel: int = 10
+    seq_steps: int = 16
+    seq_velocities: tuple[int, int, int] = (100, 127, 60)
+    seq_editor: bool = True
+    seq_editor_port: int = 47041
+    seq_dir: Path = Path("patterns")
+    seq_display_lead_ms: int = 40
     env_path: Path | None = None
 
 
@@ -218,6 +252,18 @@ def parse_step(text: str) -> tuple[int, str] | None:
     return count, unit
 
 
+def _as_ints(values: dict[str, str], key: str, low: int, high: int) -> tuple[int, ...] | None:
+    """Parse a space/comma-separated list of integers in [low, high]; None if invalid."""
+
+    try:
+        numbers = tuple(int(part) for part in str(values.get(key, "")).replace(",", " ").split())
+    except ValueError:
+        return None
+    if not numbers or any(not low <= n <= high for n in numbers):
+        return None
+    return numbers
+
+
 def _as_step(values: dict[str, str], key: str, default: str) -> tuple[int, str]:
     """Parse a playhead step setting, falling back to *default*."""
 
@@ -294,5 +340,33 @@ def load_config(
         nudge_step=_as_step(values, "NUDGE_STEP", DEFAULTS["NUDGE_STEP"]),
         nudge_repeat_ms=_as_int(values, "NUDGE_REPEAT_MS", 150),
         shift_oneshot_ms=_as_int(values, "SHIFT_ONESHOT_MS", 3000),
+        seq_out_port=values["SEQ_OUT_PORT"],
+        clock_in_port=values["CLOCK_IN_PORT"],
+        seq_notes=_as_ints(values, "SEQ_NOTES", 0, 127) or Config.seq_notes,
+        seq_channel=min(16, max(1, _as_int(values, "SEQ_CHANNEL", 10))),
+        seq_steps=min(64, max(1, _as_int(values, "SEQ_STEPS", 16))),
+        seq_velocities=_velocities(_as_ints(values, "SEQ_VELOCITIES", 1, 127)),
+        seq_editor=_as_bool(values, "SEQ_EDITOR", True),
+        seq_editor_port=_as_int(values, "SEQ_EDITOR_PORT", 47041),
+        seq_dir=_as_dir(values["SEQ_DIR"], resolved, cwd),
+        seq_display_lead_ms=min(500, max(0, _as_int(values, "SEQ_DISPLAY_LEAD_MS", 40))),
         env_path=resolved,
     )
+
+
+def _velocities(numbers: tuple[int, ...] | None) -> tuple[int, int, int]:
+    """normal / accent / soft velocities; the default unless exactly three."""
+
+    if numbers is None or len(numbers) != 3:
+        return Config.seq_velocities
+    return numbers  # type: ignore[return-value]
+
+
+def _as_dir(text: str, env_path: Path | None, cwd: Path | None) -> Path:
+    """A folder setting; relative paths are relative to the .env file's folder."""
+
+    path = Path(str(text).strip() or "patterns")
+    if path.is_absolute():
+        return path
+    base = env_path.parent if env_path is not None else (Path.cwd() if cwd is None else cwd)
+    return base / path

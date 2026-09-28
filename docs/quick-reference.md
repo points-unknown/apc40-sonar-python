@@ -25,7 +25,7 @@ panel.
 | **Grid mode** | Meters, Pads | `METERS=on/off` in `.env` (restart) | Grid shows meters or stays dark | Meters | Clip grid, Clip Stop LEDs |
 | **Shift layer** | Off / held / one-shot / locked | Hold, tap, or double-tap **Shift** (see Shift combos) | HUD badge `SHIFT` / `SHIFT 1x` / `SHIFT LOCK` (the APC40's Shift has no LED) | Off | Buttons that have a Shift combo; Shift + Cue Level |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
-| **Mode** | **Tracking**, *Step Sequencer* (not built), **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row) |
+| **Mode** | **Tracking**, **Step Sequencer**, **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Sequencer` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row); in the Step Sequencer also the grid, Clip Stop row, Bank Select arrows and Device knobs (see Step sequencer) |
 | **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips control: faders, strip buttons, Pan/Send knobs, meters and Track Selection |
 
 ## Track strips (x8, one per Cakewalk track in the current bank)
@@ -46,11 +46,88 @@ opposite of Ableton, where lit means active.
 
 | Control | Meters mode (default) | Pads mode (`METERS=off`) | Planned |
 |---|---|---|---|
-| **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Step sequencer (5 lanes x 8 steps, tap cycles velocity color), drum pads, clip launch |
-| **Scene 1 / 2 / 3** | **Mode:** 1 = Tracking, 2 = Step Sequencer (*not built yet*), 3 = Mixing. The active mode's Scene LED is lit | Same | Scenes 4-5: free |
+| **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Drum pads, clip launch |
+| **Scene 1 / 2 / 3** | **Mode:** 1 = Tracking, 2 = Step Sequencer (the grid becomes the pattern; see Step sequencer), 3 = Mixing. The active mode's Scene LED is lit | Same | Scenes 4-5: free |
 | **Stop All Clips** | Transport Stop + clears all clip latches + flashes Stop and Clip Stop LEDs | Stop + flash | - |
 
 Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.
+
+## Step sequencer (Scene 2)
+
+The grid becomes a drum pattern that plays along with Cakewalk. It needs two extra
+loopMIDI cables and Cakewalk's MIDI clock turned on: see the setup guide, *Step sequencer
+(optional)*. Without the cables Scene 2 shows a HUD message and stays in the current mode.
+
+> **Every project must send the clock.** In Cakewalk, *Edit > Preferences > Project >
+> MIDI*: tick *Transmit MIDI Start/Continue/Stop/Clock* and select `APC40-CLOCK`. It is
+> saved per project, so a new project starts without it and the pattern does not play;
+> the editor window warns in amber. Set it in your template project.
+
+**Which knob for velocity?** Any of the eight **Device Control knobs** (the bottom-right
+block of knobs): hold the pad and turn whichever is closest.
+
+```text
+            step 1 ... step 8        (one page of 8 steps)
+grid row 1  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 1  (kick)
+grid row 2  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 2  (snare)
+grid row 3  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 3  (closed hi-hat)
+grid row 4  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 4  (open hi-hat)
+grid row 5  [ ][ ][ ][ ][ ][ ][ ][ ]  lane 5  (clap)
+Clip Stop   [ ][ ][*][ ][ ][ ][ ][ ]  the step playing now
+```
+
+| Control | Action | LED | Status |
+|---|---|---|---|
+| **Grid pad** (tap) | Cycle the step: off -> **green** (normal, velocity 100) -> **amber** (accent, 127) -> **red** (soft, 60) -> off | Step color | **Live** |
+| **Grid pad** (hold 1 s on a lit step) | Turn the step **off** (no need to cycle through) | Goes dark at the 1 s mark | **Live** |
+| **Grid pad** (hold) + **any Device Control knob** | Set the held step's exact velocity (1-127). Several pads can be held at once | The pad shows the nearest color; the knob's ring shows the value; the HUD shows `Velocity N` | **Live** |
+| **Clip Stop row** | Display only: the step playing now (dark while stopped, or when the playing step is on another page). Pressing does nothing | Green | **Live** |
+| **Bank Select Left / Right** | Previous / next page of **steps** (1-8, 9-16, ...) | For 0.6 s the Clip Stop row shows the page number: LED *n* = page *n* | **Live** |
+| **Bank Select Up / Down** | Previous / next page of **lanes** (1-5, 6-10) | Same, but blinking | **Live** |
+
+- **Editor window:** entering Scene 2 opens *APC40 Step Sequencer* on screen; leaving
+  Scene 2 closes it. It shows the whole pattern (up to 64 steps x 32 lanes), the playing
+  step (white box) and, in blue, the 8 x 5 part the APC40 shows. Click a cell = same as a
+  pad tap; right-click = clear; mouse wheel = velocity +/-5 (Shift +/-1). Click a step
+  number or lane number to move the APC40's view there. Edit a lane's name and note in
+  place; **right-click a lane** to move it up / down, add a lane or remove it.
+- **Toolbar:** **Steps** (pattern length), **Paste from Sonar** and **Export .mid** (with
+  the last bar count, 4 at first). Everything else is in the menus:
+
+  | Menu | Items |
+  |---|---|
+  | **File** | Paste from Sonar (Ctrl+V), Import .mid... (Ctrl+O), Export .mid... (Ctrl+E, asks how many bars), Open patterns folder |
+  | **Pattern** | Add lane, Clear all steps..., Length (8-64 steps), MIDI channel (1-16) |
+  | **Drum map** | The built-in maps (General MIDI 10 / 16 lanes, Addictive Drums 2 16 / 32 lanes) and your saved ones; Save current lanes as map..., Import map..., Export map... |
+  | **View** | Always on top, Playhead lead... |
+
+- **Export .mid** writes the pattern, repeated to fill the bars, to
+  `patterns/pattern-<date>-<time>.mid` and opens Explorer with the file selected: drag it
+  onto a Cakewalk track to get regular MIDI notes (one track).
+- **Import .mid** replaces the steps with a MIDI file's notes: starting at the bar of its
+  first note, snapped to sixteenths, up to 64 steps. A clip that repeats the same 1 or 2
+  bars comes in as just that cycle. Lanes keep their names; notes with no lane get a new
+  one. Copy from Sonar starting on a bar line, or everything shifts.
+- **Paste from Sonar** takes a MIDI clip you copied in Sonar (Ctrl+C) and loads it like
+  Import. There is no copy the other way (Sonar only pastes its own copies): use Export.
+- **Playhead lead** (View menu): if the Clip Stop row and the white box lag behind what
+  you hear, raise it until they line up; lower it if they run early. Default 40 ms
+  (`SEQ_DISPLAY_LEAD_MS`); your value is remembered (`patterns/settings.json`). It only
+  moves the display, never the notes.
+- **Drum maps** (the lane list: note, name, channel of each lane, without the steps):
+  picking one keeps every row's steps and changes what each row plays; a shorter map leaves
+  the extra rows alone. Saved maps live in `patterns/drum-maps/`; Import / Export map read
+  or write a map file anywhere, for example to share it.
+- The pattern **saves itself** (`patterns/current.json`) and comes back when the app
+  restarts.
+- The pattern plays only while Cakewalk plays and follows its tempo and position, so
+  recording on the drum track captures exactly what you hear.
+- Default lanes (General MIDI drums, channel 10): kick 36, snare 38, closed hat 42, open
+  hat 46, clap 39, rim 37, low tom 45, mid tom 47, high tom 50, crash 49. Change them with
+  `SEQ_NOTES` / `SEQ_CHANNEL`; the pattern length is `SEQ_STEPS` (default 16). These only
+  shape a brand-new pattern; after that, edit in the window.
+- Faders, strip buttons, Track Control knobs, transport, Cue and the crossfader work as
+  usual. The meters leave the grid while the sequencer owns it and come back on Scene 1 / 3.
 
 ## Knobs
 
@@ -116,9 +193,9 @@ use Loop <- selection or Punch <- selection.
 | **Play** | Play | From Cakewalk | **Live** | - |
 | **Stop** | Stop. **Press twice quickly** (within 0.4 s) to also return to the start of the project | From Cakewalk | **Live** | - |
 | **Record** | Record | From Cakewalk | **Live** | - |
-| **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...) | Flashes on press | **Live** | Page steps in the step sequencer |
+| **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...). Step Sequencer: page the steps | Flashes on press | **Live** | - |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
-| **Bank Select Up / Down** | Cakewalk arrow key Up / Down | - | **Live** | Page lanes in the step sequencer |
+| **Bank Select Up / Down** | Cakewalk arrow key Up / Down. Step Sequencer: page the lanes | Flashes on press | **Live** | - |
 | **Shift** | Modifier: hold, tap (one-shot) or double-tap (lock); see Shift combos | No LED on the APC40; shown in the HUD | **Live** | - |
 | **Tap Tempo** | - (LED flash only) | Flash | *Provisional* | Tap tempo keystroke (needs keystroke bridge) |
 | **Nudge - / +** | Move the playhead back / forward **1 measure** per press (`NUDGE_STEP`); **hold** to keep moving (repeats every `NUDGE_REPEAT_MS` after 0.4 s) | - | **Live** | - |

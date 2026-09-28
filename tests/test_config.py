@@ -251,3 +251,52 @@ def test_parse_step_forms():
     assert config.parse_step("49 tick") is None  # capped: flood risk
     assert config.parse_step("") is None
 
+
+
+def test_sequencer_settings_defaults(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    monkeypatch.delenv(config.ENV_VAR, raising=False)
+
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert cfg.seq_out_port == "APC40-SEQ"
+    assert cfg.clock_in_port == "APC40-CLOCK"
+    assert cfg.seq_notes == (36, 38, 42, 46, 39, 37, 45, 47, 50, 49)
+    assert cfg.seq_channel == 10
+    assert cfg.seq_steps == 16
+    assert cfg.seq_velocities == (100, 127, 60)
+
+
+def test_sequencer_settings_override_and_validation(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SEQ_NOTES=36, 38 42\nSEQ_CHANNEL=1\nSEQ_STEPS=32\nSEQ_VELOCITIES=90 120 40\n",
+        encoding="utf-8",
+    )
+    cfg = config.load_config(env_path=env_file)
+    assert cfg.seq_notes == (36, 38, 42)
+    assert cfg.seq_channel == 1
+    assert cfg.seq_steps == 32
+    assert cfg.seq_velocities == (90, 120, 40)
+
+    env_file.write_text(
+        "SEQ_NOTES=36 200\nSEQ_CHANNEL=17\nSEQ_STEPS=0\nSEQ_VELOCITIES=90 120\n",
+        encoding="utf-8",
+    )
+    cfg = config.load_config(env_path=env_file)
+    assert cfg.seq_notes == (36, 38, 42, 46, 39, 37, 45, 47, 50, 49)
+    assert cfg.seq_channel == 16
+    assert cfg.seq_steps == 1
+    assert cfg.seq_velocities == (100, 127, 60)
+
+
+def test_sequencer_editor_settings(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text("SEQ_EDITOR=off\nSEQ_EDITOR_PORT=50001\nSEQ_DIR=my patterns\n", encoding="utf-8")
+
+    cfg = config.load_config(env_path=env_file)
+
+    assert cfg.seq_editor is False
+    assert cfg.seq_editor_port == 50001
+    assert cfg.seq_dir == tmp_path / "my patterns"  # relative to the .env folder

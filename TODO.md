@@ -13,7 +13,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 236 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 314 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -29,7 +29,7 @@ modes.
 | Scene | Mode | Status |
 |---|---|---|
 | 1 | **Tracking** - utility row = editing / loop / punch (below) | To build |
-| 2 | **Step Sequencer** (below) | Future |
+| 2 | **Step Sequencer** (below) | First version built; needs hardware test |
 | 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Needs the C4 surface |
 | 4-5 | Free | - |
 
@@ -120,26 +120,34 @@ Decisions (agreed):
 
 Tasks:
 
-- [ ] Research: where Cakewalk enables MIDI Clock / SPP output to a port, and confirm it
-      also sends Start / Stop / Continue with the transport
-- [ ] Ports: two new loopMIDI cables, e.g. `APC40-SEQ` (app -> Cakewalk notes) and
-      `APC40-CLOCK` (Cakewalk -> app clock), with `SEQ_OUT_PORT` / `CLOCK_IN_PORT` in
-      `.env`, opened best-effort. Separate cables so neither side reads its own traffic
-- [ ] `sequencer` module (hardware-free, unit-tested): pattern model (lanes x steps x
-      velocity), clock tick -> step advance, SPP positioning, Start/Stop/Continue, Note
-      On/Off scheduling (fixed gate, e.g. half a step), all notes off on Stop
-- [ ] Lane config: note number + MIDI channel per lane in `.env` or a YAML file; default
-      GM drums on channel 10 (kick 36, snare 38, closed hat 42, open hat 46, clap 39, ...)
-- [ ] Grid rendering: pad colors from the current lane page + step page; playhead on
-      Clip Stop; redraw on page change and when leaving/re-entering the mode
-- [ ] Input: pad press cycles the step; hold pad + Device Control knob sets velocity
-      (depends on handling Mode 0 Device Control banking - see Device / plug-in mode);
-      Bank Select arrows page steps/lanes instead of sending MCU cursor keys
-- [ ] Page indicator: on a page change, briefly show the page number (e.g. light Clip Stop
-      LED *n* for page *n*) before returning to the playhead
-- [ ] Clip Stop presses in this mode: no MCU V-pot push (the row is a display); decide
-      later whether they get a function
-- [ ] Pattern persistence: save/load patterns to a file so they survive a restart
+- [x] Research: Edit > Preferences > Project > MIDI, *Transmit MIDI
+      Start/Continue/Stop/Clock* + *MIDI Sync Output Ports* (saved per project, by port
+      number). Still to confirm on hardware: SPP when starting mid-song, and what Cakewalk
+      sends at a loop point
+- [x] Ports: `APC40-SEQ` (`SEQ_OUT_PORT`, notes) and `APC40-CLOCK` (`CLOCK_IN_PORT`,
+      clock), opened best-effort; clock handled in the rtmidi callback (done)
+- [x] `sequencer` module: pattern, clock -> steps, SPP, Start/Stop/Continue, half-step
+      gate, note-offs on Stop / SPP / exit (done, unit-tested)
+- [x] Lane config in `.env`: `SEQ_NOTES`, `SEQ_CHANNEL`, `SEQ_STEPS`, `SEQ_VELOCITIES`
+      (done; per-lane channels would need a richer format)
+- [x] Grid rendering, playhead on Clip Stop, page indicator (0.6 s, blinking for lanes),
+      meters restored on leaving (done)
+- [x] Input: tap (at release) cycles the step; hold pad + Device knob sets velocity;
+      arrows page steps/lanes; Clip Stop presses do nothing (done)
+- [ ] Hardware test: timing of recorded notes (does Cakewalk's clock lead or lag its
+      audio?), SPP, loop points, pad feel of acting at release
+- [x] Editor window (Scene 2 only): whole pattern, lane names/notes, add/move/remove
+      lanes, length up to 64, channel, APC40 view outline, playhead (done)
+- [x] Export `.mid` (N bars) to `SEQ_DIR` for dragging into Cakewalk; format 1 so it
+      lands as one track (done)
+- [x] Import `.mid` into the pattern (done)
+- [x] Playhead lead: display drawn ahead of the clock, tunable live in the editor (done)
+- [x] Drum maps: built-in GM presets, dropdown, save / import / export map files (done)
+- [x] Clipboard Paste from Sonar (its copy includes a plain `Standard MIDI File` format)
+      (done). Copy into Sonar is impossible: Sonar pastes only its own internal copy
+- [x] Export opens Explorer with the new `.mid` selected, for dragging into Sonar (done)
+- [x] Pattern persistence: autosave to `SEQ_DIR/current.json`, loaded at startup (done)
+- [ ] Several named patterns (save as / load / switch), maybe on Scenes 4-5
 - [ ] Docs: sequencer section in `docs/quick-reference.md`, cables and Cakewalk clock
       setup in `docs/setup-loopmidi-and-cakewalk.md`, internals in `docs/GENERAL.md`
 - [ ] Later ideas: clear pattern (e.g. Shift + Stop All Clips), per-lane mute, copy page,

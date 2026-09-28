@@ -26,6 +26,7 @@ from . import apc40 as apc
 from . import hud_state
 from . import mcu
 from . import mcu_display
+from . import sequencer as sq
 
 log = logging.getLogger(__name__)
 
@@ -204,12 +205,28 @@ PRESS_TOASTS = {
     mcu.NOTE_F2: "Auto-punch toggled",
 }
 
-# Scene buttons select the mode (Scene 2 = step sequencer, not built yet).
+# Scene buttons select the mode.
 MODES = ("tracking", "sequencer", "mixing")
 MODE_SCENE = {"tracking": apc.NOTE_SCENE1, "sequencer": apc.NOTE_SCENE1 + 1, "mixing": apc.NOTE_SCENE1 + 2}
 SCENE_MODE = {note: mode for mode, note in MODE_SCENE.items()}
 MODE_TOASTS = {"tracking": "Tracking mode", "sequencer": "Step sequencer mode", "mixing": "Mixing mode"}
-BUILT_MODES = frozenset({"tracking", "mixing"})
+
+# Step sequencer: pad color per step level, and the Bank Select arrows, which
+# page steps (Left/Right) and lanes (Up/Down) instead of moving Cakewalk.
+SEQ_LEVEL_COLOR = {"normal": apc.CLIP_GREEN, "accent": apc.CLIP_YELLOW, "soft": apc.CLIP_RED}
+# Shown when Cakewalk plays but sends no MIDI clock: the setting is per project,
+# so every new project starts without it.
+SEQ_NO_CLOCK = (
+    "Cakewalk is playing but sends no clock. In this project set Preferences > Project > MIDI: "
+    "tick Transmit MIDI Start/Continue/Stop/Clock and pick APC40-CLOCK (saved per project)."
+)
+
+SEQ_PAGE_MOVES = {
+    apc.NOTE_LEFT: ("steps", -1),
+    apc.NOTE_RIGHT: ("steps", 1),
+    apc.NOTE_UP: ("lanes", -1),
+    apc.NOTE_DOWN: ("lanes", 1),
+}
 
 # In Generic Mode the first four utility buttons (58-61) LATCH: the APC40
 # lights its own LED and sends Note On on one press, and turns it off and
@@ -271,6 +288,11 @@ class Engine:
         nudge_repeat_frames: int = 8,
         shift_oneshot_frames: int = 150,
         shift_double_frames: int = 20,
+        sequencer: sq.Sequencer | None = None,
+        seq_indicator_frames: int = 25,
+        seq_hold_frames: int = 50,
+        seq_clock_frames: int = 75,
+        seq_display_lead_ms: int = 40,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -392,6 +414,29 @@ class Engine:
         self.bank_offset: int | None = None
         self._bank_exact = False
 
+        # Step sequencer (Scene 2); None when its output port is missing.
+        # The grid shows one page of 5 lanes x 8 steps; the Clip Stop row is
+        # the playhead, or briefly the page number after a page change.
+        self.sequencer = sequencer
+        self.seq_indicator_frames = max(1, seq_indicator_frames)
+        self.seq_hold_frames = max(1, seq_hold_frames)  # hold a lit pad this long = off
+        # Playing this long without a clock Start means Cakewalk sends no clock.
+        self.seq_clock_frames = max(1, seq_clock_frames)
+        self._seq_unclocked_since: int | None = None
+        # Draw the playhead this far ahead of the clock (display delay).
+        self.seq_display_lead_ms = max(0, seq_display_lead_ms)
+        self._seq_step_page = 0
+        self._seq_lane_page = 0
+        self._seq_shown_step: int | None = None
+        self._seq_indicator: tuple[str, int] | None = None  # (kind, page) on show
+        self._seq_indicator_end = 0
+        # Pads held down: (lane, step) -> the frame it was pressed, or None once
+        # the hold did something (a Device knob set its velocity, or a long hold
+        # turned it off), so its release no longer cycles the step.
+        self._seq_held: dict[tuple[int, int], int | None] = {}
+        self._seq_knob_abs: dict[int, int] = {}
+        self.seq_status = ""  # last editor-visible message (e.g. the exported file)
+
     # ------------------------------------------------------------------
     # MCU output helpers
     # ------------------------------------------------------------------
@@ -448,6 +493,9 @@ class Engine:
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
             if channel < apc.DEVICE_BANKS:
                 self.device_bank = channel
+                if self._seq_held and self.mode == "sequencer":
+                    self._seq_knob(cc - apc.CC_DEVICE_KNOB1 + 1, value)
+                    return
                 self._knob_dump.setdefault(channel, set()).add(cc)
                 self._knob_dump_frame = self._frame
                 if not self.mixer:
@@ -521,6 +569,12 @@ class Engine:
 
         # Per-track controls arrive on channels 0-7.
         if channel < self.tracks and apc.NOTE_RECORD_ARM <= note <= per_track_end:
+            if self.mode == "sequencer":
+                if note >= apc.NOTE_CLIP_ROW1:
+                    self._seq_pad(channel, note - apc.NOTE_CLIP_ROW1, pressed)
+                    return
+                if note == apc.NOTE_CLIP_STOP:
+                    return  # the playhead row is a display here
             if note >= apc.NOTE_CLIP_ROW1:
                 if self.meters:
                     return  # the grid is a level-meter display
@@ -575,6 +629,12 @@ class Engine:
 
         # Mode-dependent utility row (Tracking: editing, markers, selection).
         if pressed and self._on_mode_button(note, shifted):
+            return
+
+        if self.mode == "sequencer" and note in SEQ_PAGE_MOVES:
+            if pressed:
+                self._seq_page(*SEQ_PAGE_MOVES[note])
+                self._flash_global(note)
             return
 
         # Shift layer: mapped combos replace the button's normal action;
@@ -829,13 +889,18 @@ class Engine:
     def set_mode(self, mode: str) -> None:
         """Select the operating mode (Scene 1 / 2 / 3)."""
 
-        if mode not in BUILT_MODES:
-            self.toast("Step sequencer: not built yet")
+        if mode == "sequencer" and self.sequencer is None:
+            self.toast("Step sequencer: SEQ_OUT_PORT unavailable")
             self._render_mode_leds()
             return
-        self.mode = mode
+        previous, self.mode = self.mode, mode
         self._render_mode_leds()
         self.toast(MODE_TOASTS[mode])
+        if mode == "sequencer" and previous != "sequencer":
+            self._render_seq(force=True)
+        elif previous == "sequencer" and mode != "sequencer":
+            self._seq_held.clear()
+            self._render_grid_meters()
 
     def _render_mode_leds(self) -> None:
         lit = MODE_SCENE[self.mode]
@@ -1281,15 +1346,31 @@ class Engine:
         self._meter_clip[track] = clipped
         self._render_meter_clip(track)
 
+    @property
+    def _grid_meters(self) -> bool:
+        """Meters own the clip grid (not while the sequencer does)."""
+
+        return self.meters and self.mode != "sequencer"
+
+    def _render_grid_meters(self) -> None:
+        """Redraw the whole grid and Clip Stop row as meters (or dark)."""
+
+        for track in range(self.tracks):
+            for row in range(1, self.rows + 1):
+                self.apc.clip_pad(track, row, apc.CLIP_OFF, force=True)
+            self.apc.clip_stop(track, apc.CLIP_OFF, force=True)
+            self._render_meter_bar(track)
+            self._render_meter_clip(track, force=True)
+
     def _render_meter_bar(self, track: int) -> None:
-        if not self.meters:
+        if not self._grid_meters:
             return
         level = self._meter_level[track]
         for row, threshold, color in METER_SEGMENTS:
             self.apc.clip_pad(track, row, color if level >= threshold else apc.CLIP_OFF)
 
     def _render_meter_clip(self, track: int, *, force: bool = False) -> None:
-        if not self.meters:
+        if not self._grid_meters:
             return
         state = METER_CLIP_COLOR if self._meter_clip[track] else apc.CLIP_OFF
         self.apc.clip_stop(track, state, force=force)
@@ -1303,6 +1384,231 @@ class Engine:
                 self._meter_age[track] = 0
                 self._meter_level[track] -= 1
                 self._render_meter_bar(track)
+
+    # ------------------------------------------------------------------
+    # Step sequencer grid (Scene 2)
+    # ------------------------------------------------------------------
+
+    def _seq_cell(self, track: int, row: int) -> tuple[int, int] | None:
+        """(lane, step) under grid *track* (0-7) / *row* (0-4); None past the pattern."""
+
+        seq = self.sequencer
+        lane = self._seq_lane_page * self.rows + row
+        step = self._seq_step_page * self.tracks + track
+        if seq is None or lane >= len(seq.lanes) or step >= seq.steps:
+            return None
+        return lane, step
+
+    def _seq_pad(self, track: int, row: int, pressed: bool) -> None:
+        """A tap cycles the step at release; hold + Device knob sets its velocity;
+        holding a lit pad for ``seq_hold_frames`` turns it off (see _seq_holds)."""
+
+        cell = self._seq_cell(track, row)
+        if cell is None:
+            return
+        if pressed:
+            self._seq_held[cell] = self._frame
+            return
+        if cell not in self._seq_held:
+            return
+        if self._seq_held.pop(cell) is not None:
+            self.sequencer.cycle(*cell)
+        self._render_seq_pad(track, row, force=True)
+
+    def _seq_display_step(self) -> int | None:
+        return self.sequencer.display_step(self.seq_display_lead_ms / 1000)
+
+    def _seq_check_clock(self) -> None:
+        """Warn when Cakewalk's Play LED is on but its clock never started the sequencer."""
+
+        if self._play_led and not self.sequencer.running:
+            if self._seq_unclocked_since is None:
+                self._seq_unclocked_since = self._frame
+            elif self._frame - self._seq_unclocked_since == self.seq_clock_frames:
+                self.seq_status = SEQ_NO_CLOCK
+                self.toast("No clock from Cakewalk: see the editor")
+                log.warning("Cakewalk plays but sends no MIDI clock to the sequencer")
+            return
+        self._seq_unclocked_since = None
+        if self.sequencer.running and self.seq_status == SEQ_NO_CLOCK:
+            self.seq_status = ""
+
+    def _seq_holds(self) -> None:
+        """Turn off a lit step whose pad has been held long enough."""
+
+        for cell, pressed_at in self._seq_held.items():
+            if pressed_at is None or self._frame - pressed_at < self.seq_hold_frames:
+                continue
+            if self.sequencer.velocity(*cell):
+                self.sequencer.set_velocity(*cell, 0)
+                self._seq_held[cell] = None
+                lane, step = cell
+                self._render_seq_pad(step % self.tracks, lane % self.rows, force=True)
+                self.toast("Step off")
+
+    def _seq_knob(self, knob: int, value: int) -> None:
+        """Device knob turned while pads are held: adjust their velocity."""
+
+        previous = self._seq_knob_abs.get(knob)
+        self._seq_knob_abs[knob] = value
+        if previous is None:
+            return
+        delta = (value - previous) % 128
+        if delta > 64:
+            delta -= 128
+        if not delta:
+            return
+        seq = self.sequencer
+        shown = 0
+        for cell in self._seq_held:
+            current = seq.velocity(*cell) or seq.velocities["normal"]
+            shown = max(1, min(127, current + delta))
+            seq.set_velocity(*cell, shown)
+            self._seq_held[cell] = None
+            lane, step = cell
+            self._render_seq_pad(step % self.tracks, lane % self.rows)
+        self.apc.ring_style(apc.device_ring_style_cc(knob), apc.RING_VOLUME, channel=self.device_bank)
+        self.apc.ring_position(apc.device_ring_cc(knob), shown, channel=self.device_bank)
+        self.toast(f"Velocity {shown}")
+
+    def _seq_page(self, kind: str, delta: int) -> None:
+        seq = self.sequencer
+        if kind == "steps":
+            pages = -(-seq.steps // self.tracks)
+            page = max(0, min(pages - 1, self._seq_step_page + delta))
+            self._seq_step_page = page
+            first = page * self.tracks + 1
+            self.toast(f"Steps {first}-{min(first + self.tracks - 1, seq.steps)}")
+        else:
+            pages = -(-len(seq.lanes) // self.rows)
+            page = max(0, min(pages - 1, self._seq_lane_page + delta))
+            self._seq_lane_page = page
+            first = page * self.rows + 1
+            self.toast(f"Lanes {first}-{min(first + self.rows - 1, len(seq.lanes))}")
+        self._seq_held.clear()
+        self._seq_indicator = (kind, page)
+        self._seq_indicator_end = self._frame + self.seq_indicator_frames
+        self._render_seq()
+
+    def _seq_tick(self) -> None:
+        self._seq_holds()
+        self._seq_check_clock()
+        if self._seq_indicator is not None:
+            if self._frame >= self._seq_indicator_end:
+                self._seq_indicator = None
+                self._render_seq_stop_row(force=True)
+        elif self._seq_display_step() != self._seq_shown_step:
+            self._render_seq_stop_row()
+
+    def seq_command(self, cmd: dict) -> bool:
+        """Apply one edit from the editor window. False for an unknown or bad command."""
+
+        seq = self.sequencer
+        if seq is None:
+            return False
+        op = cmd.get("op")
+        try:
+            if op == "cycle":
+                seq.cycle(int(cmd["lane"]), int(cmd["step"]))
+            elif op == "velocity":
+                seq.set_velocity(int(cmd["lane"]), int(cmd["step"]), int(cmd["velocity"]))
+            elif op == "lane":
+                note = cmd.get("note")
+                seq.set_lane(int(cmd["lane"]), note=None if note is None else int(note), name=cmd.get("name"))
+            elif op == "add_lane":
+                seq.add_lane()
+            elif op == "remove_lane":
+                seq.remove_lane(int(cmd["lane"]))
+            elif op == "move_lane":
+                seq.move_lane(int(cmd["lane"]), int(cmd["delta"]))
+            elif op == "steps":
+                seq.set_steps(int(cmd["steps"]))
+            elif op == "channel":
+                seq.set_channel(int(cmd["channel"]))
+            elif op == "clear":
+                seq.clear()
+            elif op == "map":
+                seq.apply_map(sq.map_from_dict(cmd))
+                self.seq_status = f"Drum map: {cmd.get('drum_map') or 'applied'}"
+            elif op == "lead":
+                self.seq_display_lead_ms = max(0, min(500, int(cmd["ms"])))
+            elif op == "status":
+                self.seq_status = str(cmd["text"])[:300]
+            elif op == "load":
+                if not seq.load_dict(cmd["pattern"]):
+                    return False
+            elif op == "view":
+                self._seq_step_page = int(cmd.get("step_page", self._seq_step_page))
+                self._seq_lane_page = int(cmd.get("lane_page", self._seq_lane_page))
+            else:
+                return False
+        except (KeyError, TypeError, ValueError, IndexError):
+            return False
+        if self.mode == "sequencer":
+            self._render_seq()
+        return True
+
+    def seq_state(self) -> dict:
+        """What the editor window shows: the pattern, playhead and APC40 page."""
+
+        seq = self.sequencer
+        if seq is None:
+            return {}
+        self._clamp_seq_pages()
+        data = seq.to_dict()
+        for lane, item in zip(seq.lanes, data["lanes"]):
+            item["label"] = lane.label
+        data.update(
+            playing=self._seq_display_step(),
+            lead_ms=self.seq_display_lead_ms,
+            step_page=self._seq_step_page,
+            lane_page=self._seq_lane_page,
+            page_steps=self.tracks,
+            page_lanes=self.rows,
+            velocities=dict(seq.velocities),
+            status=self.seq_status,
+            status_warn=self.seq_status == SEQ_NO_CLOCK,
+        )
+        return data
+
+    def _clamp_seq_pages(self) -> None:
+        seq = self.sequencer
+        step_pages = -(-seq.steps // self.tracks)
+        lane_pages = -(-len(seq.lanes) // self.rows)
+        self._seq_step_page = max(0, min(step_pages - 1, self._seq_step_page))
+        self._seq_lane_page = max(0, min(lane_pages - 1, self._seq_lane_page))
+
+    def _render_seq(self, *, force: bool = False) -> None:
+        self._clamp_seq_pages()
+        for track in range(self.tracks):
+            for row in range(self.rows):
+                self._render_seq_pad(track, row, force=force)
+        self._render_seq_stop_row(force=True)
+
+    def _render_seq_pad(self, track: int, row: int, *, force: bool = False) -> None:
+        cell = self._seq_cell(track, row)
+        level = None if cell is None else self.sequencer.level(*cell)
+        color = apc.CLIP_OFF if level is None else SEQ_LEVEL_COLOR[level]
+        self.apc.clip_pad(track, row + 1, color, force=force)
+
+    def _render_seq_stop_row(self, *, force: bool = False) -> None:
+        """Playhead on the Clip Stop row, or the page number after a page change.
+
+        Step pages light solid and lane pages blink (the row has only green).
+        """
+
+        lit, color = None, apc.CLIP_GREEN
+        if self._seq_indicator is not None:
+            kind, lit = self._seq_indicator
+            if kind == "lanes":
+                color = apc.CLIP_GREEN_BLINK
+        else:
+            step = self._seq_display_step()
+            self._seq_shown_step = step
+            if step is not None and step // self.tracks == self._seq_step_page:
+                lit = step % self.tracks
+        for track in range(self.tracks):
+            self.apc.clip_stop(track, color if track == lit else apc.CLIP_OFF, force=force)
 
     # ------------------------------------------------------------------
     # Flashes
@@ -1330,6 +1636,8 @@ class Engine:
                 self.apc.clip_stop(track, apc.CLIP_OFF, force=True)
                 if self._meter_clip[track]:
                     self._render_meter_clip(track, force=True)
+            if self.mode == "sequencer":
+                self._render_seq_stop_row(force=True)
 
         self._schedule_flash(frames, off)
 
@@ -1344,6 +1652,8 @@ class Engine:
         self._repeat_nudge()
         self._expire_shift()
         self._decay_meters()  # also keeps the HUD meters falling when the grid is off
+        if self.mode == "sequencer":
+            self._seq_tick()
         if any(self._peek) and self._temp_message is None:
             self._update_strip_names(expire=True)
         if not self._flashes:

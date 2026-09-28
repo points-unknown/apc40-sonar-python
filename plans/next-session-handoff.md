@@ -1,6 +1,6 @@
 # Next Session Handoff
 
-Start here. State as of 2026-09-27: 236 hardware-free tests pass,
+Start here. State as of 2026-09-27: 314 hardware-free tests pass,
 everything below "Built" is **verified on the user's hardware**, working tree clean.
 
 ## Read first
@@ -29,6 +29,20 @@ everything below "Built" is **verified on the user's hardware**, working tree cl
 - Level meters on the clip grid, Shift + Detail View toggles Cakewalk's meters.
 - On-screen HUD (separate tkinter process fed by UDP), exit animation.
 
+## Built, awaiting hardware test
+
+- **Step sequencer** (Scene 2): `sequencer` module + engine grid mode + `SEQ_*` config,
+  ports `APC40-SEQ` / `APC40-CLOCK`, editor window (`seq_editor`, opens only in Scene 2),
+  `.mid` export (format 1: format 0 made Sonar create a track per channel) / import, drum
+  maps (dropdown + map files), clipboard Paste from Sonar (Copy into Sonar is impossible: it pastes only its internal
+  copy), autosave. See `GENERAL.md` *Step sequencer* and setup guide section 6.
+  Playback and pads verified on hardware; the editor window and export are not yet.
+- The user wanted Sonar's *own* Step Sequencer driven at first; the control-surface SDK
+  only exposes view / insert-delete row / prev-next step / step record, no cell access,
+  so the app has its own sequencer with this editor instead (user's decision).
+- **Cakewalk quirk:** changing MIDI Devices while Cakewalk runs disconnects the Mackie
+  surface until Cakewalk restarts; clock sent to a Mackie cable floods and mutes it.
+
 ## Next, in priority order
 
 1. **Mixing mode = C4 second surface** per [`c4-surface-plan.md`](c4-surface-plan.md):
@@ -40,7 +54,8 @@ everything below "Built" is **verified on the user's hardware**, working tree cl
 2. **Reconnect handling**: recover when loopMIDI mutes/drops a cable or the APC40 USB
    disconnects, without restarting the app.
 3. **Readable `--monitor`**: decode notes/CCs into names ("Undo", "Marker nav + FF").
-4. **Step sequencer** (Scene 2): fully specified in `TODO.md`; needs MIDI clock research.
+4. **Step sequencer follow-ups**: pattern persistence, clear pattern, per-lane mute
+   (see `TODO.md`).
 
 ## Critical Cakewalk / APC40 facts (learned the hard way)
 

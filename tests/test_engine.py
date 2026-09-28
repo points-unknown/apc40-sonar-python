@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from apc40sonar import apc40 as apc
 from apc40sonar import engine as engine_mod
+from apc40sonar import sequencer as sq
 from apc40sonar import mcu
 
 
@@ -1554,13 +1555,13 @@ def test_scene_buttons_select_the_mode_and_light_one_scene():
     assert eng.mode == "tracking"
 
 
-def test_step_sequencer_scene_is_not_built_yet():
+def test_step_sequencer_scene_needs_its_output_port():
     eng, _, _ = make_engine()
 
     eng.on_apc_message((0x90, apc.NOTE_SCENE1 + 1, 127))
 
     assert eng.mode == "tracking"
-    assert any("not built" in text for _, text in eng.hud_snapshot().toasts)
+    assert any("SEQ_OUT_PORT" in text for _, text in eng.hud_snapshot().toasts)
 
 
 def test_scene_release_reasserts_the_mode_led():
@@ -1780,3 +1781,319 @@ def test_latching_undo_works_on_every_press():
 
     assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) * 3
 
+
+
+# ---------------------------------------------------------------------------
+# Step sequencer (Scene 2)
+# ---------------------------------------------------------------------------
+
+
+def make_seq_engine(steps=16, lanes=sq.DEFAULT_LANES):
+    notes = []
+    seq = sq.Sequencer(notes.append, steps=steps, lanes=lanes)
+    eng, rec, out = make_engine(sequencer=seq, seq_indicator_frames=3, seq_hold_frames=5, seq_clock_frames=5,
+                                   seq_display_lead_ms=0)
+    eng.on_apc_message((0x90, apc.NOTE_SCENE1 + 1, 127))
+    rec.apc_msgs.clear()
+    rec.mcu_msgs.clear()
+    return eng, rec, seq, notes
+
+
+def tap_pad(eng, track, row):
+    """Grid pad for track 0-7, row 1-5."""
+    eng.on_apc_message((0x90 | track, apc.NOTE_CLIP_ROW1 + row - 1, 127))
+    eng.on_apc_message((0x80 | track, apc.NOTE_CLIP_ROW1 + row - 1, 0))
+
+
+def pad_color(rec, track, row):
+    note = apc.NOTE_CLIP_ROW1 + row - 1
+    writes = [m for m in rec.apc_msgs if m[1] == note and m[0] & 0x0F == track and m[0] & 0xE0 == 0x80]
+    last = writes[-1]
+    return last[2] if last[0] & 0xF0 == 0x90 else 0
+
+
+def stop_row(rec):
+    """Clip Stop state per track from the latest writes."""
+    row = {}
+    for m in rec.apc_msgs:
+        if m[1] == apc.NOTE_CLIP_STOP and m[0] & 0xE0 == 0x80:
+            row[m[0] & 0x0F] = m[2] if m[0] & 0xF0 == 0x90 else 0
+    return row
+
+
+def test_sequencer_mode_draws_the_pattern_and_leaves_meters_alone():
+    eng, rec, seq, _ = make_seq_engine()
+
+    assert eng.mode == "sequencer"
+    eng.on_mcu_message((0xD0, 0x0C))  # a loud meter on strip 1
+    assert rec.apc_msgs == []
+
+
+def test_pad_tap_cycles_the_step_and_its_color():
+    eng, rec, seq, _ = make_seq_engine()
+
+    tap_pad(eng, 2, 1)
+    assert seq.velocity(0, 2) == 100
+    assert pad_color(rec, 2, 1) == apc.CLIP_GREEN
+    tap_pad(eng, 2, 1)
+    assert pad_color(rec, 2, 1) == apc.CLIP_YELLOW
+    tap_pad(eng, 2, 1)
+    assert pad_color(rec, 2, 1) == apc.CLIP_RED
+    tap_pad(eng, 2, 1)
+    assert pad_color(rec, 2, 1) == apc.CLIP_OFF and seq.velocity(0, 2) == 0
+    assert rec.mcu_msgs == []
+
+
+def test_arrows_page_steps_and_lanes_instead_of_cakewalk():
+    eng, rec, seq, _ = make_seq_engine()
+
+    press(eng, apc.NOTE_RIGHT)  # steps 9-16
+    press(eng, apc.NOTE_DOWN)  # lanes 6-10
+    tap_pad(eng, 0, 1)
+
+    assert seq.velocity(5, 8) == 100
+    assert rec.mcu_msgs == []
+
+
+def test_pages_stop_at_the_pattern_edges():
+    eng, _, seq, _ = make_seq_engine(steps=16)
+
+    for _ in range(3):
+        press(eng, apc.NOTE_RIGHT)
+    press(eng, apc.NOTE_LEFT)
+    press(eng, apc.NOTE_LEFT)  # past the first page
+    tap_pad(eng, 0, 1)
+
+    assert seq.velocity(0, 0) == 100
+
+
+def test_pads_past_the_last_lane_do_nothing():
+    eng, _, seq, _ = make_seq_engine(lanes=(sq.Lane(36), sq.Lane(38)))
+
+    tap_pad(eng, 0, 3)  # row 3 has no lane
+
+    assert all(seq.velocity(lane, 0) == 0 for lane in range(2))
+
+
+def test_clip_stop_row_follows_the_playhead():
+    eng, rec, seq, _ = make_seq_engine()
+
+    seq.on_clock([sq.START])
+    for _ in range(7):
+        seq.on_clock([sq.CLOCK])  # step 2
+    eng.tick()
+
+    assert stop_row(rec)[1] == apc.CLIP_GREEN
+    assert stop_row(rec).get(0, apc.CLIP_OFF) == apc.CLIP_OFF
+
+    seq.on_clock([sq.STOP])
+    eng.tick()
+    assert set(stop_row(rec).values()) == {apc.CLIP_OFF}
+
+
+def test_page_change_briefly_shows_the_page_number():
+    eng, rec, seq, _ = make_seq_engine()
+
+    press(eng, apc.NOTE_RIGHT)  # step page 2
+    assert stop_row(rec)[1] == apc.CLIP_GREEN
+
+    for _ in range(3):
+        eng.tick()
+    assert stop_row(rec)[1] == apc.CLIP_OFF
+
+
+def test_clip_stop_presses_do_not_push_vpots_in_the_sequencer():
+    eng, rec, _, _ = make_seq_engine()
+
+    press(eng, apc.NOTE_CLIP_STOP, channel=3)
+
+    assert rec.mcu_msgs == []
+
+
+def test_hold_pad_and_turn_a_device_knob_sets_velocity():
+    eng, rec, seq, _ = make_seq_engine()
+    pad = apc.NOTE_CLIP_ROW1
+
+    eng.on_apc_message((0x90, pad, 127))  # hold step 1, lane 1
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 64))  # baseline
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 74))  # +10
+    eng.on_apc_message((0x80, pad, 0))  # release: no cycle after a knob turn
+
+    assert seq.velocity(0, 0) == 110
+    assert pad_color(rec, 0, 1) == apc.CLIP_GREEN  # nearest band: normal
+    assert rec.mcu_msgs == []
+
+
+def test_device_knob_without_a_held_pad_is_not_velocity():
+    eng, _, seq, _ = make_seq_engine()
+
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 64))
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 74))
+
+    assert seq.velocity(0, 0) == 0
+
+
+def test_leaving_the_sequencer_restores_the_meter_grid():
+    eng, rec, seq, _ = make_seq_engine()
+    tap_pad(eng, 0, 5)
+    eng.on_mcu_message((0xD0, 0x05))  # strip 1 at level 5 (grid rows 4-5)
+
+    eng.on_apc_message((0x90, apc.NOTE_SCENE1, 127))  # Tracking
+
+    assert pad_color(rec, 0, 5) == apc.CLIP_GREEN  # meter segment, not the step
+    assert pad_color(rec, 0, 1) == apc.CLIP_OFF
+    assert eng.mode == "tracking"
+
+
+def test_editor_commands_edit_the_pattern_and_redraw_the_grid():
+    eng, rec, seq, _ = make_seq_engine()
+
+    assert eng.seq_command({"op": "cycle", "lane": 0, "step": 0})
+    assert pad_color(rec, 0, 1) == apc.CLIP_GREEN
+    assert eng.seq_command({"op": "velocity", "lane": 0, "step": 0, "velocity": 127})
+    assert pad_color(rec, 0, 1) == apc.CLIP_YELLOW
+    assert eng.seq_command({"op": "lane", "lane": 0, "note": 40})
+    assert seq.lanes[0].note == 40
+    assert not eng.seq_command({"op": "nonsense"})
+    assert not eng.seq_command({"op": "cycle"})
+
+
+def test_editor_view_command_moves_the_apc40_page():
+    eng, _, seq, _ = make_seq_engine()
+
+    eng.seq_command({"op": "view", "step_page": 1, "lane_page": 1})
+    tap_pad(eng, 0, 1)
+
+    assert seq.velocity(5, 8) == 100
+
+
+def test_shrinking_the_pattern_pulls_the_page_back():
+    eng, _, seq, _ = make_seq_engine(steps=32)
+    for _ in range(3):
+        press(eng, apc.NOTE_RIGHT)  # steps 25-32
+
+    eng.seq_command({"op": "steps", "steps": 8})
+
+    assert eng.seq_state()["step_page"] == 0
+
+
+def test_seq_state_carries_labels_page_and_playhead():
+    eng, _, seq, _ = make_seq_engine()
+    seq.on_clock([sq.START])
+    seq.on_clock([sq.CLOCK])
+
+    state = eng.seq_state()
+
+    assert state["lanes"][0]["label"] == "Kick"
+    assert state["playing"] == 0
+    assert (state["page_steps"], state["page_lanes"]) == (8, 5)
+    assert len(state["lanes"][0]["steps"]) == 16
+
+
+def test_editor_load_command_replaces_the_pattern():
+    eng, rec, seq, _ = make_seq_engine()
+
+    ok = eng.seq_command({"op": "load", "pattern": {"steps": 8, "lanes": [{"note": 38, "steps": [127] + [0] * 7}]}})
+
+    assert ok and seq.steps == 8 and seq.lanes[0].note == 38
+    assert pad_color(rec, 0, 1) == apc.CLIP_YELLOW
+    assert not eng.seq_command({"op": "load", "pattern": {"steps": 8}})
+
+
+def test_editor_map_command_applies_a_drum_map():
+    eng, _, seq, _ = make_seq_engine()
+    seq.cycle(0, 0)
+
+    assert eng.seq_command({"op": "map", "drum_map": "Kit", "lanes": [{"note": 35, "name": "Deep"}]})
+
+    assert seq.lanes[0].label == "Deep" and seq.velocity(0, 0) == 100
+    assert eng.seq_state()["status"] == "Drum map: Kit"
+    assert not eng.seq_command({"op": "map", "lanes": []})
+
+
+def hold_pad(eng, track, row, frames):
+    eng.on_apc_message((0x90 | track, apc.NOTE_CLIP_ROW1 + row - 1, 127))
+    for _ in range(frames):
+        eng.tick()
+    eng.on_apc_message((0x80 | track, apc.NOTE_CLIP_ROW1 + row - 1, 0))
+
+
+def test_holding_a_lit_pad_turns_it_off_without_cycling():
+    eng, rec, seq, _ = make_seq_engine()
+    tap_pad(eng, 0, 1)
+    tap_pad(eng, 0, 1)  # accent
+
+    eng.on_apc_message((0x90, apc.NOTE_CLIP_ROW1, 127))
+    for _ in range(5):
+        eng.tick()
+    assert seq.velocity(0, 0) == 0  # off at the 1 s mark, before release
+    assert pad_color(rec, 0, 1) == apc.CLIP_OFF
+
+    eng.on_apc_message((0x80, apc.NOTE_CLIP_ROW1, 0))
+    assert seq.velocity(0, 0) == 0  # the release does not cycle it back on
+
+
+def test_a_short_hold_still_cycles():
+    eng, _, seq, _ = make_seq_engine()
+    tap_pad(eng, 0, 1)
+
+    hold_pad(eng, 0, 1, 4)
+
+    assert seq.velocity(0, 0) == 127  # normal -> accent
+
+
+def test_holding_an_off_pad_turns_it_on_at_release():
+    eng, _, seq, _ = make_seq_engine()
+
+    hold_pad(eng, 0, 1, 20)
+
+    assert seq.velocity(0, 0) == 100
+
+
+def test_a_knob_turn_during_a_hold_cancels_hold_to_clear():
+    eng, _, seq, _ = make_seq_engine()
+    tap_pad(eng, 0, 1)
+
+    eng.on_apc_message((0x90, apc.NOTE_CLIP_ROW1, 127))
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 64))
+    eng.on_apc_message((0xB0, apc.CC_DEVICE_KNOB1, 70))
+    for _ in range(10):
+        eng.tick()
+    eng.on_apc_message((0x80, apc.NOTE_CLIP_ROW1, 0))
+
+    assert seq.velocity(0, 0) == 106
+
+
+def test_playing_without_a_clock_warns_how_to_fix_it():
+    eng, _, seq, _ = make_seq_engine()
+    eng.on_mcu_message((0x90, mcu.NOTE_PLAY, 127))  # Cakewalk plays
+
+    for _ in range(6):
+        eng.tick()
+
+    state = eng.seq_state()
+    assert state["status_warn"] and "APC40-CLOCK" in state["status"]
+
+    seq.on_clock([sq.START])  # the clock arrives: the warning goes away
+    eng.tick()
+    assert not eng.seq_state()["status_warn"]
+
+
+def test_no_warning_while_the_clock_runs():
+    eng, _, seq, _ = make_seq_engine()
+    seq.on_clock([sq.START])
+    eng.on_mcu_message((0x90, mcu.NOTE_PLAY, 127))
+
+    for _ in range(10):
+        eng.tick()
+
+    assert eng.seq_state()["status"] == ""
+
+
+def test_editor_lead_command_sets_the_display_lead():
+    eng, _, _, _ = make_seq_engine()
+
+    assert eng.seq_command({"op": "lead", "ms": 80})
+    assert eng.seq_state()["lead_ms"] == 80
+    eng.seq_command({"op": "lead", "ms": 9999})
+    assert eng.seq_state()["lead_ms"] == 500

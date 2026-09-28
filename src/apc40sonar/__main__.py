@@ -18,14 +18,20 @@ cables (``APC40-IN`` write, ``APC40-OUT`` read) are opened best-effort: if
 they are missing the app still runs in APC40-only mode, which is enough for the
 lightshow test.
 
+The step sequencer's two cables (``SEQ_OUT_PORT`` notes to Cakewalk,
+``CLOCK_IN_PORT`` MIDI clock from Cakewalk) are optional too: without the
+note output Scene 2 stays off, and without the clock nothing plays.
+
 Run as ``uv run apc40sonar ...`` or ``uv run python -m apc40sonar ...``.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -37,7 +43,10 @@ from . import engine
 from . import hud_link
 from . import lightshow
 from . import logging_setup
+from . import midi_file
 from . import midi_io
+from . import seq_link
+from . import sequencer as sq
 
 PROG = "apc40sonar"
 POLL_SECONDS = 0.02
@@ -100,6 +109,11 @@ def _report_config(cfg: config_module.Config, ports: midi_io.MidiPorts, stream: 
         ("mcu_out (app->CW)    ", cfg.mcu_out_port, ports.outputs, None),
         ("mcu_in  (CW->app)    ", cfg.mcu_in_port, None, ports.inputs),
     ]
+    # Step sequencer cables: optional, reported without failing the check.
+    optional = [
+        ("seq_out (app->CW)    ", cfg.seq_out_port, ports.outputs, "Scene 2 sequencer off"),
+        ("clock   (CW->app)    ", cfg.clock_in_port, ports.inputs, "the sequencer will not play"),
+    ]
 
     print("Configured ports:", file=stream)
     all_ok = True
@@ -119,6 +133,15 @@ def _report_config(cfg: config_module.Config, ports: midi_io.MidiPorts, stream: 
         all_ok = all_ok and ok
         status = "OK  " if ok else "FAIL"
         print(f"  [{status}] {label} {name!r} ({', '.join(details)})", file=stream)
+
+    print("Step sequencer ports (optional):", file=stream)
+    for label, name, names, effect in optional:
+        try:
+            detail = f"index {midi_io.resolve_index(names, name)}"
+            status = "OK  "
+        except LookupError:
+            detail, status = f"missing: {effect}", "--  "
+        print(f"  [{status}] {label} {name!r} ({detail})", file=stream)
 
     return all_ok
 
@@ -153,6 +176,64 @@ def _open_mcu(cfg: config_module.Config, log: logging.Logger, *, sysex: bool = F
     return mcu_out, mcu_in
 
 
+def _open_sequencer(cfg: config_module.Config, log: logging.Logger, monitor: bool):
+    """Open the sequencer cables best-effort. Returns (sequencer, out, in).
+
+    The sequencer exists when its note output opened; clock messages are
+    handled on rtmidi's input thread so notes go out on the clock, not on
+    the 20 ms run loop.
+    """
+
+    try:
+        seq_out = midi_io.open_output(cfg.seq_out_port, cfg.client_name)
+    except Exception as exc:  # noqa: BLE001 - optional feature
+        log.info("sequencer output %r unavailable: %s", cfg.seq_out_port, exc)
+        print(f"note: sequencer port {cfg.seq_out_port!r} unavailable; Scene 2 off", file=sys.stderr)
+        return None, None, None
+    log.info("opened sequencer output %r", cfg.seq_out_port)
+
+    def seq_send(message: Sequence[int]) -> None:
+        if monitor:
+            print(f"seq> {list(message)}")
+        seq_out.send_message(list(message))
+
+    normal, accent, soft = cfg.seq_velocities
+    seq = sq.Sequencer(
+        seq_send,
+        lanes=[sq.Lane(note, cfg.seq_channel) for note in cfg.seq_notes],
+        steps=cfg.seq_steps,
+        velocities={"normal": normal, "accent": accent, "soft": soft},
+    )
+    saved = _pattern_file(cfg)
+    try:
+        if saved.is_file() and seq.load_dict(json.loads(saved.read_text(encoding="utf-8"))):
+            log.info("loaded sequencer pattern %s", saved)
+    except (OSError, ValueError) as exc:
+        log.warning("cannot load sequencer pattern %s: %s", saved, exc)
+
+    clock_in = None
+    try:
+        clock_in = midi_io.open_input(cfg.clock_in_port, cfg.client_name, ignore_timing=False)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("clock input %r unavailable: %s", cfg.clock_in_port, exc)
+        print(f"warning: clock port {cfg.clock_in_port!r} unavailable; the sequencer will not play",
+              file=sys.stderr)
+        return seq, seq_out, None
+    log.info("opened clock input %r", cfg.clock_in_port)
+
+    def on_clock(event, _data=None) -> None:
+        message, _delta = event
+        if monitor and message and message[0] != sq.CLOCK:
+            print(f"clk: {message}")
+        try:
+            seq.on_clock(message)
+        except Exception:  # noqa: BLE001 - never kill rtmidi's thread
+            log.exception("sequencer error for clock message %r", message)
+
+    clock_in.set_callback(on_clock)
+    return seq, seq_out, clock_in
+
+
 def _drain(
     port,
     handler: Callable[[Sequence[int]], None],
@@ -177,6 +258,159 @@ def _drain(
             handler(message)
         except Exception:  # noqa: BLE001 - isolate per-message failures
             log.exception("handler error for %s message %r", label, message)
+
+
+def _pattern_file(cfg: config_module.Config) -> Path:
+    return cfg.seq_dir / "current.json"
+
+
+def _settings_file(cfg: config_module.Config) -> Path:
+    return cfg.seq_dir / "settings.json"
+
+
+def _load_settings(cfg: config_module.Config) -> dict:
+    """Sequencer settings changed in the editor (they override .env)."""
+
+    try:
+        data = json.loads(_settings_file(cfg).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+class _SeqEditor:
+    """The sequencer's editor window, its UDP link, pattern autosave and .mid export.
+
+    The window runs as a child process only while the Step Sequencer mode is
+    active: entering Scene 2 opens it, leaving closes it. Closing it by hand
+    keeps it closed until the next time Scene 2 is entered.
+    """
+
+    SAVE_DELAY = 1.0  # seconds after the last edit
+
+    def __init__(self, cfg: config_module.Config, env_path: Path | None, seq: sq.Sequencer, log: logging.Logger):
+        self.cfg = cfg
+        self.seq = seq
+        self.log = log
+        self.argv = [sys.executable, "-m", "apc40sonar.seq_editor", "--parent-pid", str(os.getpid())]
+        self.argv += ["--port", str(cfg.seq_editor_port), "--dir", str(cfg.seq_dir)]
+        if env_path is not None:
+            self.argv += ["--env", str(env_path)]
+        self.publisher = seq_link.StatePublisher(seq_link.Sender(cfg.seq_editor_port))
+        self.commands: seq_link.Receiver | None = None
+        try:
+            self.commands = seq_link.Receiver(cfg.seq_editor_port + 1)
+        except OSError as exc:
+            log.warning("sequencer editor commands unavailable (UDP %d): %s", cfg.seq_editor_port + 1, exc)
+        self.process: hud_link.HudProcess | None = None
+        self._was_active = False
+        self._saved_version = seq.version
+        self._save_at: float | None = None
+        self._saved_lead: int | None = None
+
+    def update(self, eng: engine.Engine) -> None:
+        active = eng.mode == "sequencer"
+        if active and not self._was_active and self.cfg.seq_editor and self.commands is not None:
+            self.process = hud_link.HudProcess(self.argv, max_restarts=0, name="sequencer editor")
+            self.process.start()
+            self.publisher.reset()
+        elif not active and self._was_active and self.process is not None:
+            self.process.stop()
+            self.process = None
+        self._was_active = active
+
+        if self.commands is not None:
+            for cmd in self.commands.poll("cmd"):
+                if cmd.get("op") == "export":
+                    self._export(eng, cmd.get("bars", 4))
+                elif cmd.get("op") == "import":
+                    self._import(eng, cmd.get("path", ""))
+                else:
+                    eng.seq_command(cmd)
+        if self.process is not None:
+            self.process.poll()
+            self.publisher.publish(eng.seq_state())
+        self._autosave()
+        self._save_settings(eng)
+
+    def _save_settings(self, eng: engine.Engine) -> None:
+        """Keep the editor's display lead across restarts."""
+
+        lead = eng.seq_display_lead_ms
+        if self._saved_lead is None:
+            self._saved_lead = lead  # the value at startup is already stored
+            return
+        if lead == self._saved_lead:
+            return
+        self._saved_lead = lead
+        path = _settings_file(self.cfg)
+        try:
+            data = _load_settings(self.cfg)
+            data["display_lead_ms"] = lead
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        except OSError as exc:
+            self.log.warning("cannot save sequencer settings %s: %s", path, exc)
+
+    def _export(self, eng: engine.Engine, bars) -> None:
+        try:
+            bars = max(1, min(256, int(bars)))
+            path = midi_file.export(self.seq, self.cfg.seq_dir, bars, time.strftime("%Y%m%d-%H%M%S"))
+        except (OSError, TypeError, ValueError) as exc:
+            self.log.warning("MIDI export failed: %s", exc)
+            eng.seq_status = f"Export failed: {exc}"
+            return
+        self.log.info("exported %d bars to %s", bars, path)
+        eng.seq_status = f"Exported {bars} bars: {path}  (drag it onto a Cakewalk track)"
+        eng.toast(f"Exported {path.name}")
+        if sys.platform == "win32":
+            try:  # Explorer with the new file selected, ready to drag into Sonar
+                subprocess.Popen(["explorer", f"/select,{path}"])
+            except OSError as exc:
+                self.log.warning("cannot open Explorer: %s", exc)
+
+    def _import(self, eng: engine.Engine, path: str) -> None:
+        try:
+            data = Path(path).read_bytes()
+            pattern, summary = midi_file.import_pattern(data, self.seq.to_dict())
+        except (OSError, midi_file.MidiFileError) as exc:
+            self.log.warning("MIDI import of %s failed: %s", path, exc)
+            eng.seq_status = f"Import failed: {exc}"
+            return
+        eng.seq_command({"op": "load", "pattern": pattern})
+        self.log.info("imported %s: %s", path, summary)
+        eng.seq_status = f"Imported {Path(path).name}: {summary}"
+        eng.toast("Pattern imported")
+
+    def _autosave(self, *, now: bool = False) -> None:
+        version = self.seq.version
+        if version == self._saved_version:
+            return
+        clock = time.monotonic()
+        if self._save_at is None:
+            self._save_at = clock + self.SAVE_DELAY
+        if not now and clock < self._save_at:
+            return
+        self._save_at = None
+        path = _pattern_file(self.cfg)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.seq.to_dict(), indent=1), encoding="utf-8")
+            os.replace(tmp, path)
+            self._saved_version = version
+        except OSError as exc:
+            self.log.warning("cannot save sequencer pattern %s: %s", path, exc)
+            self._saved_version = version  # do not retry every frame
+
+    def stop(self) -> None:
+        if self.process is not None:
+            self.process.stop()
+            self.process = None
+        self._autosave(now=True)
+        self.publisher.sender.close()
+        if self.commands is not None:
+            self.commands.close()
 
 
 class _Hud:
@@ -247,6 +481,7 @@ def _run(args: argparse.Namespace) -> int:
         apc_out_handle.send_message(list(message))
 
     apc_out = apc40.Apc40Output(apc_send)
+    seq, seq_out, clock_in = _open_sequencer(cfg, log, args.monitor)
 
     def mcu_send(message: Sequence[int]) -> None:
         if args.monitor:
@@ -279,9 +514,15 @@ def _run(args: argparse.Namespace) -> int:
         nudge_repeat_frames=round(cfg.nudge_repeat_ms / 1000 / POLL_SECONDS),
         shift_oneshot_frames=round(cfg.shift_oneshot_ms / 1000 / POLL_SECONDS),
         shift_double_frames=round(0.4 / POLL_SECONDS),
+        sequencer=seq,
+        seq_indicator_frames=round(0.6 / POLL_SECONDS),
+        seq_hold_frames=round(1.0 / POLL_SECONDS),
+        seq_clock_frames=round(1.5 / POLL_SECONDS),
+        seq_display_lead_ms=_load_settings(cfg).get("display_lead_ms", cfg.seq_display_lead_ms),
     )
 
     hud: _Hud | None = None
+    editor = _SeqEditor(cfg, args.env, seq, log) if seq is not None else None
     try:
         if not args.no_show:
             print("startup lightshow...")
@@ -318,6 +559,13 @@ def _run(args: argparse.Namespace) -> int:
                         log.exception("HUD update failed; HUD disabled")
                         hud.stop()
                         hud = None
+                if editor is not None:
+                    try:
+                        editor.update(eng)
+                    except Exception:  # noqa: BLE001 - the editor must never stop MIDI
+                        log.exception("sequencer editor update failed; editor disabled")
+                        editor.stop()
+                        editor = None
                 time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
             print("\nstopping")
@@ -330,7 +578,13 @@ def _run(args: argparse.Namespace) -> int:
     finally:
         if hud is not None:
             hud.stop()
-        del apc_in, apc_out_handle, mcu_out, mcu_in
+        if editor is not None:
+            editor.stop()
+        if clock_in is not None:
+            clock_in.cancel_callback()
+        if seq is not None:
+            seq.all_notes_off()
+        del apc_in, apc_out_handle, mcu_out, mcu_in, seq_out, clock_in
 
 
 def main(argv: Sequence[str] | None = None) -> int:

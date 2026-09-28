@@ -160,6 +160,43 @@ Everything else on the page can stay at its default.
 
 What every button does: [`quick-reference.md`](quick-reference.md).
 
+### 6. Step sequencer (optional)
+
+Scene 2 turns the grid into a drum pattern. It needs two more cables and Cakewalk's MIDI
+clock. Skip this section if you do not use it; the rest of the app works without it.
+
+1. **loopMIDI:** add two cables, `APC40-SEQ` (the app's notes to Cakewalk) and
+   `APC40-CLOCK` (Cakewalk's clock to the app). Separate cables keep each side from
+   reading its own messages.
+2. **Cakewalk, Edit > Preferences > MIDI > Devices:** tick `APC40-SEQ` under **Inputs**
+   and `APC40-CLOCK` under **Outputs**. Leave `APC40-SEQ` as an output and `APC40-CLOCK`
+   as an input unticked. Then **close and reopen Cakewalk**: changing MIDI devices while
+   it runs disconnects the Mackie Control surface (the APC40 stops controlling Cakewalk,
+   even after undoing the change) until Cakewalk restarts. After the restart, check that
+   *Preferences > MIDI > Control Surfaces* still shows `APC40-IN` / `APC40-OUT`.
+3. **Cakewalk, Edit > Preferences > Project > MIDI (in EVERY project):** tick **Transmit
+   MIDI Start/Continue/Stop/Clock** and select **only** `APC40-CLOCK` under **MIDI Sync
+   Output Ports** (clock sent to `APC40-IN` or `APC40-OUT` floods the Mackie cable).
+   If there is a Song Position Pointer option, tick it too, so the pattern lines up when
+   you start from the middle of the song.
+
+   > **This is a per-project setting, and you must set it by hand.** A new project starts
+   > without it, and then the sequencer silently does nothing: the pads light, but Play
+   > plays no pattern. Set it in your **template project** so new projects inherit it.
+   > If you forget, the editor window says so (in amber) after 1.5 s of playing without a
+   > clock. Cakewalk stores the port by number, not name, so check it again if you add or
+   > remove MIDI devices.
+4. **A drum track:** add a MIDI or instrument track (any drum synth that uses General MIDI
+   notes), set its **input** to `APC40-SEQ` (channel 10, or Omni) and turn on input echo
+   to hear it. Arm it to record the pattern.
+5. Run `uv run apc40sonar --list-ports`: both show `OK` under *Step sequencer ports*.
+
+Press **Scene 2**: the editor window opens. Tap a few pads (or click cells) and press
+Play. The Clip Stop row and the window's white box follow the playing step. To get the
+pattern into Cakewalk as regular MIDI notes, either record the drum track (turn on its
+Input Quantize at 1/16 for exact timing) or click **Export .mid** and drag the file onto
+a track.
+
 ## Daily startup
 
 1. **loopMIDI** is running (automatic if Autostart is on).
@@ -192,6 +229,7 @@ does is Cakewalk's *Meters* setting, and you can switch it without opening any d
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Scene 2: pads and editor work, but Play plays no pattern and the Clip Stop row stays dark | This project does not send MIDI clock (a per-project setting) | In this project: Edit > Preferences > Project > MIDI, tick **Transmit MIDI Start/Continue/Stop/Clock**, select only `APC40-CLOCK`. Save it in your template |
 | `error: cannot open APC40 port` | Another app holds the APC40 | Close Cakewalk (or uncheck `Akai APC40` in its MIDI Devices), MIDI-OX, Ableton, etc., then start apc40sonar again |
 | `APC40-IN` / `APC40-OUT` shows `FAIL` or `MISSING` | loopMIDI not running, the cable wasn't created, or Windows renamed it | Start loopMIDI and check both cables are listed; copy the exact names from `--list-ports` into `.env`. Reboot after a fresh loopMIDI install |
 | loopMIDI lists the cables but `--list-ports` does not | Driver not registered yet | Reboot with loopMIDI set to autostart, then check again |

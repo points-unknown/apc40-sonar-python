@@ -47,6 +47,11 @@ APC40 hardware <--rtmidi--> engine <--rtmidi--> APC40-IN  --> Cakewalk (Mackie C
 | `apc40` | APC40 constants, message builders, the Type 0 introduction SysEx, and the cached/forced LED+ring renderer |
 | `mcu` | Mackie Control encoders (real Note On/Off, 14-bit faders, relative V-pot deltas, packed ring bytes) and decoders |
 | `engine` | State machine and translation: faders, strip buttons, transport, clip grid, knob modes, feedback rendering, level meters, flashes |
+| `sequencer` | Step sequencer pattern and clock-driven player: MIDI Clock / Start / Stop / Continue / Song Position in, notes out. Hardware-free |
+| `midi_file` | Pattern to a Standard MIDI File (format 1, one track, 480 PPQ) repeated over N bars, and MIDI file notes back to a pattern |
+| `clipboard` | Windows clipboard MIDI (ctypes): reads Sonar's copied clips, writes the pattern for pasting |
+| `seq_link` | The sequencer editor's UDP JSON link (state to the window, edit commands back) |
+| `seq_editor` | The tkinter sequencer editor window, run as its own process (`python -m apc40sonar.seq_editor`) |
 | `lightshow` | The startup lightshow (lights every host-addressable control, then blacks out) and the exit animation |
 | `mcu_display` | Decoders for Cakewalk's MCU LCD SysEx and 7-segment timecode/assignment CCs (HUD only) |
 | `hud_state` | `HudSnapshot`, the immutable engine state the HUD shows |
@@ -79,6 +84,16 @@ Port names and options live in `.env` at the repository root (copy
 | `NUDGE_STEP` | `1 measure` | Playhead move per Nudge press (and per repeat while held) |
 | `NUDGE_REPEAT_MS` | `150` | Repeat interval while Nudge is held (after a 0.4 s hold) |
 | `SHIFT_ONESHOT_MS` | `3000` | A tapped (one-shot) Shift expires after this long |
+| `SEQ_OUT_PORT` | `APC40-SEQ` | Step sequencer notes, app to Cakewalk (optional; without it Scene 2 is off) |
+| `CLOCK_IN_PORT` | `APC40-CLOCK` | Cakewalk's MIDI clock to the app (optional; without it the sequencer does not play) |
+| `SEQ_NOTES` | `36 38 42 46 39 37 45 47 50 49` | One MIDI note per lane (GM drums: kick, snare, closed/open hat, clap, rim, toms, crash) |
+| `SEQ_CHANNEL` | `10` | MIDI channel (1-16) for every lane |
+| `SEQ_STEPS` | `16` | Pattern length in 1/16 steps (1-64) |
+| `SEQ_VELOCITIES` | `100 127 60` | Velocities for normal / accent / soft steps |
+| `SEQ_EDITOR` | `on` | Open the sequencer editor window while in the Step Sequencer |
+| `SEQ_EDITOR_PORT` | `47041` | UDP port for state to the editor; its commands come back on this + 1 |
+| `SEQ_DISPLAY_LEAD_MS` | `40` | Draw the sequencer playhead this far ahead of the clock (0-500); the editor's *Playhead lead* overrides it via `SEQ_DIR/settings.json` |
+| `SEQ_DIR` | `patterns` | Autosaved pattern (`current.json`), `.mid` exports and the editor's window position; relative to the `.env` folder |
 | `HUD` | `on` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
 | `HUD_PORT` | `47040` | UDP port on 127.0.0.1 between the app and the HUD |
 | `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-left` / `bottom-right`, or `x,y` on the monitor |
@@ -102,7 +117,7 @@ Process-environment values override the file, so a one-off run can use
 | `uv run apc40sonar --lightshow` | Play the show, render the ready state, exit (APC40 only; no loopMIDI needed) |
 | `uv run apc40sonar` | Full engine: lightshow, then the APC40 <-> Cakewalk event loop |
 | `uv run apc40sonar --no-show` | Skip the lightshow |
-| `uv run apc40sonar --monitor` | Also print incoming and outgoing MIDI (`apc:`/`mcu:` in, `apc>`/`mcu>` out) |
+| `uv run apc40sonar --monitor` | Also print incoming and outgoing MIDI (`apc:`/`mcu:` in, `apc>`/`mcu>` out; `clk:` = Start/Stop/Continue/Song Position from the clock cable, clocks themselves are not printed; `seq>` = sequencer notes out) |
 | `uv run apc40sonar --no-hud` | Run without the on-screen HUD (`--hud` overrides `HUD=off`) |
 | `uv run python -m apc40sonar.hud` | Start a HUD by hand and attach it to a running app |
 | `uv run apc40sonar --env PATH` | Use an explicit `.env` file |
@@ -202,7 +217,9 @@ The Scene buttons select the operating mode (`Engine.mode`, always `tracking` at
 the mode's Scene LED is lit and re-sent on every Scene release (the APC40 may blank it
 locally). Only utility-row buttons 58-61 depend on the mode: in **Tracking** they are
 editing and navigation, in **Mixing** they are reserved for C4 plug-in control and do
-nothing yet. 62-65, Nudge and everything else work the same in both.
+nothing yet. 62-65, Nudge and everything else work the same in all modes. The **Step
+Sequencer** (Scene 2) also takes over the grid, Clip Stop row and Bank Select arrows; see
+*Step sequencer*.
 
 Tracking uses Cakewalk's own Mackie buttons (Cakewalk mode numbers):
 
@@ -228,6 +245,99 @@ buttons, following their LEDs. In Generic Mode Master is part of the Track Selec
 group: it sends **no note 80**, only the Master bank's knob dump (CC 16-23 on channel 8),
 confirmed with a `--monitor` capture on 2026-09-27. The APC40 lights
 Master itself, so the HUD shows Tracks/Buses instead of the LED.
+
+### Step sequencer
+
+Scene 2 (`Engine.mode == "sequencer"`) hands the clip grid and Clip Stop row to the
+`sequencer` module. It exists only when `SEQ_OUT_PORT` opened (`Engine.sequencer` is
+otherwise `None` and Scene 2 shows a HUD message).
+
+**Timing.** Cakewalk sends MIDI Clock (24 per quarter note), Start / Continue / Stop and
+Song Position Pointer on `CLOCK_IN_PORT` (Edit > Preferences > Project > MIDI, *Transmit
+MIDI Start/Continue/Stop/Clock*, *MIDI Sync Output Ports*; saved per project by port
+number). The clock input is opened with timing messages enabled and a python-rtmidi
+**callback**, so `Sequencer.on_clock` runs on rtmidi's thread and sends each note the
+moment its clock arrives; the 20 ms run loop would add up to a frame of jitter. Pattern
+edits come from the run loop, so the sequencer guards its state with a lock.
+
+**Clock semantics (MIDI 1.0).** Start sets the position to 0 and the *next* clock is the
+downbeat. Song Position Pointer counts sixteenths (6 clocks); the next clock after it plays
+there. Step = (position / 6) mod `SEQ_STEPS`, so the pattern stays locked to Cakewalk's bar
+position however playback started. Notes last half a step (3 clocks); a retrigger before
+that ends the previous note first. Stop and Song Position send Note Off for every sounding
+note, and so does app exit.
+
+**Grid.** One page is 5 lanes x 8 steps; Bank Select Left/Right page steps and Up/Down
+page lanes (instead of Bank/cursor keys). Step colors: green normal, amber accent, red
+soft (the nearest band to the velocity). A pad acts at **release**: a tap cycles the step,
+while holding a pad and turning a Device Control knob sets its velocity by the knob's delta
+(the release then does not cycle). Holding a lit pad for 1 s (`seq_hold_frames`)
+turns its step off at that moment, and the release then does nothing; a knob turn during
+the hold cancels this.
+
+**Playhead lead.** The notes go out on the clock, but the playhead is drawn later: the run
+loop polls every 20 ms, LED messages travel over USB, and the editor adds its send interval
+and redraw. `Sequencer` measures the clock period (smoothed; gaps over 250 ms ignored) and
+`display_step(lead)` returns the step playing *lead* seconds from now, interpolating
+between clocks. The engine uses it for the Clip Stop row and the editor's `playing`, with
+`seq_display_lead_ms` from `SEQ_DISPLAY_LEAD_MS`, changed live by the editor's `lead`
+command and kept in `SEQ_DIR/settings.json`. It never changes when notes are sent.
+
+**No-clock warning.** Cakewalk's clock output is a per-project setting, so a new project
+sends none and the pattern silently does not play. While in the sequencer, if Cakewalk's
+Play LED has been on for `seq_clock_frames` (1.5 s) without a clock Start, the engine sets
+`seq_status` to `SEQ_NO_CLOCK` (shown in amber in the editor, `status_warn`), toasts the
+HUD and logs a warning; the first clock Start clears it. The Clip Stop row shows the playing step
+(`Sequencer.playing_step`, polled each frame), or for 0.6 s after a page change the page
+number (solid for step pages, blinking for lane pages). Meters stop drawing on the grid
+in this mode (`Engine._grid_meters`) and are redrawn when leaving it.
+
+**Editor window.** `_SeqEditor` in `__main__` starts `python -m apc40sonar.seq_editor`
+(a `HudProcess` without restarts) when the mode becomes `sequencer` and terminates it when
+the mode changes; a window closed by hand stays closed until Scene 2 is entered again. The
+app publishes `Engine.seq_state()` (pattern, lane labels, playhead, APC40 page) over
+`seq_link` on `SEQ_EDITOR_PORT`, on change (at most every 30 ms) plus a 1 s heartbeat. The
+window sends edit commands (`cycle`, `velocity`, `lane`, `add_lane`, `remove_lane`,
+`move_lane`, `steps`, `channel`, `clear`, `view`, `export`, `import`, `map`, `load`) to
+port + 1; the run loop applies
+them through `Engine.seq_command`, which redraws the APC40 grid. The pattern lives only in
+the app, so the window and the grid cannot disagree. Grid sizes scale with the screen's
+DPI. The window remembers its position in `SEQ_DIR/editor-window.txt`.
+The window keeps one toolbar row (Steps, Paste from Sonar, Export) and puts the rest in a
+native menu bar (File / Pattern / Drum map / View); lane move / add / remove is a
+right-click menu on the lane. Ctrl+V / Ctrl+O / Ctrl+E are ignored while a text field has
+focus, so Ctrl+V still pastes text into a lane name.
+
+**Clipboard.** Copying a clip in Sonar puts three formats on the clipboard: private
+`CF_CAKEWALK_SONAR`, a registered `Standard MIDI File` format (plain SMF, 960 PPQ, times
+relative to the start of the copied range) and `CF_RIFF` (the same SMF as RIFF RMID).
+Paste reads the SMF (or unwraps the RMID), saves it as `SEQ_DIR/clipboard.mid` and imports
+it like a file. There is no copy into Sonar: tested, Sonar pastes from its own internal
+copy and ignores the Windows clipboard (even with its private format removed, Ctrl+V
+pasted its last clip), so Export (which opens Explorer on the new file) plus drag is the
+way in. Clipboard blocks can be
+longer than their data (`GlobalSize` rounds up); the SMF reader relies on chunk lengths.
+
+**Drum maps** are lane lists without steps: built-ins in `sequencer.DRUM_MAPS`, saved ones
+as JSON (`{"drum_map": name, "lanes": [{"note", "channel", "name"}]}`) in
+`SEQ_DIR/drum-maps/`. The window reads and writes map files itself and sends the lanes as
+a `map` command; `Sequencer.apply_map` gives row *i* map lane *i*, keeps the steps, adds
+empty rows for a longer map and leaves extra rows alone for a shorter one. A pattern file
+(`current.json`) also reads as a drum map.
+
+**Persistence and export.** Every edit bumps `Sequencer.version`; one second after the
+last edit the pattern is written to `SEQ_DIR/current.json` (atomically, via a temp file),
+and at exit. At startup that file replaces the `SEQ_NOTES`/`SEQ_STEPS` defaults. Shortening
+the pattern keeps the hidden steps in memory until the next save. `midi_file` writes
+**format 1 with one track** (Cakewalk splits a format-0 file into one track per MIDI
+channel, so a channel-10 pattern arrived as ten tracks), 480 PPQ, a track name and a 4/4 time signature but no tempo, so a file dropped
+into Cakewalk follows the project tempo; the pattern wraps to fill the bars exactly as
+playback does, with the same half-step gate. Import reads format 0/1 (running status,
+meta and SysEx skipped), takes note starts from the bar of the first note, rounds them
+to the nearest sixteenth (the loudest wins a collision), cuts at 64 steps, shrinks a clip
+that repeats whole bars to its shortest repeating length, keeps the
+current lanes and adds lanes for new notes (up to 32). The window picks the file; the app
+reads it and loads it through `Engine.seq_command({"op": "load"})`.
 
 ### Crossfader zoom
 
