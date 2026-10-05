@@ -25,8 +25,26 @@ panel.
 | **Grid mode** | Meters, Pads | `METERS=on/off` in `.env` (restart) | Grid shows meters or stays dark | Meters | Clip grid, Clip Stop LEDs |
 | **Shift layer** | Off / held / one-shot / locked | Hold, tap, or double-tap **Shift** (see Shift combos) | HUD badge `SHIFT` / `SHIFT 1x` / `SHIFT LOCK` (the APC40's Shift has no LED) | Off | Buttons that have a Shift combo; Shift + Cue Level |
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
-| **Mode** | **Tracking**, **Step Sequencer**, **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Sequencer` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row); in the Step Sequencer also the grid, Clip Stop row, Bank Select arrows and Device knobs (see Step sequencer) |
+| **Mode** | **Tracking**, **Step Sequencer**, **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Sequencer` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row); in the Step Sequencer also the grid, Clip Stop row and Bank Select arrows (see Step sequencer) |
+| **Plug-in on the Device knobs** | Any plug-in of the selected track or bus, 8 parameters at a time | Track Selection (first plug-in); in Mixing: Clip/Track (plug-in), < / > (parameters) | HUD plug-in line (pink); in Expanded, the 8 parameter names and values | The selected track's first plug-in | Device Control knobs + rings (needs the C4 surface, see Device Control knobs) |
 | **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips control: faders, strip buttons, Pan/Send knobs, meters and Track Selection |
+
+## The three modes (Scene 1 / 2 / 3)
+
+The workflow runs left to right: record parts, program beats, then mix. Press a Scene
+button to switch; its LED stays lit. Faders, strip buttons, the Pan/Send knobs, the
+Device Control knobs, transport, Cue Level, the crossfader, Stop and the Loop/Punch half
+of the utility row (62-65) work the same in every mode. What changes:
+
+| Mode | For | What changes |
+|---|---|---|
+| **Tracking** (Scene 1, the startup mode) | Recording and editing | Utility buttons 58-61 = **Undo / Redo, insert marker, previous / next marker**, selection start / end. The grid shows level meters |
+| **Step Sequencer** (Scene 2) | Programming a drum pattern | The **grid is the pattern** and the Clip Stop row is the playhead; Bank Select arrows page steps and lanes; holding a pad lets the Device knobs set its velocity; an editor window opens. 58-61 do nothing. Needs its two cables (see Step sequencer) |
+| **Mixing** (Scene 3) | Working on effects | Utility buttons 58-61 = **plug-in control**: next / previous plug-in, plug-in on/off, next / previous 8 parameters. Needs the C4 surface (see Device Control knobs). The grid shows level meters |
+
+The HUD shows the mode (`Tracking | Trk 1-8`), and each switch toasts `Tracking mode`,
+`Step sequencer mode` or `Mixing mode`. If the sequencer's cables are missing, Scene 2
+stays in the current mode and the HUD says so.
 
 ## Track strips (x8, one per Cakewalk track in the current bank)
 
@@ -127,7 +145,8 @@ Clip Stop   [ ][ ][*][ ][ ][ ][ ][ ]  the step playing now
   `SEQ_NOTES` / `SEQ_CHANNEL`; the pattern length is `SEQ_STEPS` (default 16). These only
   shape a brand-new pattern; after that, edit in the window.
 - Faders, strip buttons, Track Control knobs, transport, Cue and the crossfader work as
-  usual. The meters leave the grid while the sequencer owns it and come back on Scene 1 / 3.
+  usual, and the Device Control knobs still control the plug-in whenever no pad is held.
+  The meters leave the grid while the sequencer owns it and come back on Scene 1 / 3.
 
 ## Knobs
 
@@ -146,10 +165,47 @@ last send.
 
 ### Device Control knobs (bottom right, x8)
 
-| Knob target | Knobs control | Rings show | Status |
+| When | Knobs control | Rings show | Status |
 |---|---|---|---|
-| Tracking / Mixing today | Nothing yet | Centered, pan style (startup) | `-` |
-| *Mixing with the C4 surface* (planned) | The selected track's (or bus's) plug-in parameters, 8 at a time, on a second Cakewalk surface; the Track Control knobs stay on Pan/Sends | Cakewalk's parameter values | Planned ([`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md)) |
+| Every mode, with the C4 surface set up | **8 parameters of the selected track's plug-in**. Pick the track with Track Selection; on **Buses** (Master) they control the selected bus's plug-in. The Track Control knobs stay on Pan/Sends | The parameter values from Cakewalk; **off** = no parameter on this knob | **Live** (verified: knobs, plug-in stepping; *paging and on/off need a hardware test*) |
+| Step Sequencer, while a pad is held | That step's velocity (see Step sequencer) | The velocity | **Live** |
+| Without the C4 surface (cables missing or `C4=off`) | Nothing | Centered, pan style (startup) | `-` |
+
+The plug-in control needs two more loopMIDI cables and a second Cakewalk surface: see the
+setup guide, *Plug-in knobs (optional)*.
+
+- **Which plug-ins:** every effect in the track's FX rack, in order, and the
+  **ProChannel** modules (EQ, compressor, Tube, ...), which Cakewalk lists first. *Exclude
+  filters from plug-ins* on the main Mackie Control page should leave the ProChannel out
+  (not tested).
+- **Choosing the plug-in and the 8 parameters:** in **Mixing** mode (Scene 3) with the
+  utility row: **Clip/Track** = next plug-in (Shift = previous), **< / >** = previous /
+  next 8 parameters (Shift = by 1), **Device On/Off** = the plug-in's on/off switch. See
+  Utility row. In the other modes the knobs keep the last choice.
+- **Paging:** the first page is parameters 1-8, then 9-16, and so on; the HUD toasts
+  `Parameters 9-16`. Paging stops at the plug-in's last parameter (`No more parameters`)
+  and at its first (`First parameters`). With Shift the window moves by one, for example to
+  get parameters 2-9.
+- **Connecting:** when the app starts (and when Cakewalk reloads the surface) it sets up
+  the C4 for about a second; the HUD shows `connecting to Cakewalk's C4 surface...`, then
+  toasts `Plug-in control ready`. The knobs do nothing until then. Cakewalk only talks to
+  the C4 with a project open.
+- **Picking a track** (Track Selection) or switching Tracks/Buses (Master) jumps to the
+  track's **first plug-in, first 8 parameters**; the HUD's plug-in line names them, e.g.
+  `FX 1: Sonitus EQ  (Track 3: "Vox")` (`C4_RESET_ON_SELECT=off` keeps the position
+  instead).
+- **On/off switch skipped:** many plug-ins list their on/off switch first (ProChannel
+  modules call it *Enable*, Cakewalk's effects *Bypass*; its value reads On or Off). Then
+  the knobs start at the parameter after it, so all 8 are real controls. In Mixing,
+  **Device On/Off** presses the switch. The HUD shows its state on the plug-in line, e.g.
+  `[Bypass: Off]`.
+- **Speed:** turn slowly for fine steps (about 0.5 % of the range per click), fast for
+  bigger ones. `C4_KNOB_STEP_LIMIT` (1-15, default 3) caps the speed.
+- Clicking a track with the mouse in Cakewalk also moves the knobs to that track, but
+  without the jump to the first plug-in.
+- After switching to **Buses**, the knobs first land on the bus with the same number as the
+  last selected track (Cakewalk shares the selection number). Press a Track Selection
+  button to pick the bus.
 
 ### Other continuous controls
 
@@ -171,13 +227,15 @@ last send.
 
 These buttons work, and their LEDs show, whichever track (or Master) is selected. The
 row groups **Loop** (62-63) and **Punch** (64-65): the "from selection" setter next to its
-on/off toggle.
+on/off toggle. In Mixing, 58-61 choose what the Device Control knobs control (they need
+the C4 surface; without it the HUD toasts `Plug-in control: no C4 surface`). In the Step
+Sequencer, 58-61 do nothing.
 
 | Button | Tracking (Scene 1) | Mixing (Scene 3) | Shift + button (both modes) | LED |
 |---|---|---|---|---|
-| **Clip/Track** (58) | **Undo** | *Reserved for plug-in control (C4)* | Tracking: **Redo** | - |
-| **Device On/Off** (59) | **Insert marker** at the playhead | *Reserved (C4)* | - | - |
-| **Left / Right arrow** (60/61) | **Previous / next marker** | *Reserved (C4)* | Tracking: **go to selection start / end** | - |
+| **Clip/Track** (58) | **Undo** | **Next plug-in** on the selected track, starting on its first parameters; after the last it goes back to the first | Tracking: **Redo**. Mixing: **previous plug-in** | Mixing: flashes |
+| **Device On/Off** (59) | **Insert marker** at the playhead | **Plug-in on/off**: presses the plug-in's on/off switch (*Enable* / *Bypass*), from any parameter page; the HUD toasts the new state, e.g. `Bypass: On`. Plug-ins without a switch: HUD says so | - | Mixing: flashes |
+| **Left / Right arrow** (60/61) | **Previous / next marker** | **Previous / next 8 parameters** of the plug-in; stops at its first and last (HUD: `First parameters` / `No more parameters`) | Tracking: **go to selection start / end**. Mixing: **parameters back / forward by 1** | Mixing: flashes |
 | **Detail View** (62) | **Loop <- selection**: loop points = the current selection | Same | **Cakewalk meters on/off** | Flashes on the meters toggle |
 | **Rec Quantize** (63) | **Loop on/off** (playback repeats between the loop points) | Same | - | **Lit while loop is on**, from Cakewalk |
 | **MIDI Overdub** (64) | **Punch <- selection**: punch points = the current selection | Same | - | - |
@@ -220,8 +278,8 @@ for a button. Buttons without a combo do their normal action while shifted.
 | **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by 1 track | **Live** |
 | **Shift + Metronome** | Metronome **during record** on/off (sends Mackie F1; the preset assigns F1 to *Metronome During Record*) | **Live** |
-| **Shift + Clip/Track** | Redo (Tracking) | **Live** |
-| **Shift + Left / Right arrow** | Go to selection start / end (Tracking) | **Live** |
+| **Shift + Clip/Track** | Redo (Tracking); previous plug-in (Mixing) | **Live** |
+| **Shift + Left / Right arrow** | Go to selection start / end (Tracking); parameters back / forward by 1 (Mixing) | **Live** |
 | **Shift + Nudge - / +** | Selection start / end = playhead | **Live** |
 
 Free for future combos: Shift + Device On/Off, Shift + Rec Quantize, Shift + MIDI
@@ -229,25 +287,77 @@ Overdub, and the strip buttons (e.g. Shift + Mute = clear all mutes).
 
 ## On-screen HUD
 
-Window that shows what the panel is doing. Opens automatically with the app; turn it
-off with `--no-hud` or `HUD=off` in `.env`. Settings (`HUD_POSITION`,
-`HUD_LAYOUT`, `HUD_OPACITY`, ...) are listed in [`GENERAL.md`](GENERAL.md#configuration-reference).
+The APC40 has no display, so the app shows a small always-on-top window with what the panel
+is doing and what Cakewalk reports. It opens with the app and closes with it. Turn it off
+with `--no-hud`, or `HUD=off` in `.env`. Clicking it never takes keyboard focus from
+Cakewalk.
 
-| Area | Shows |
+```text
+ Expanded only (grows to the left)                         Compact (always)
++----------------------------------------------------+  +--------------------------------------------+
+| DecyTm LwDmpR LwFrqC HDmpRt HFrqCt Distnc Dimnsn . |  | PAN  Mixing | Trk 1-8  Sel 1 Audio  > PLAY |
+| 1.1Sec 0.80x  160 Hz 0.48x  5243Hz 4.06Mt 2.00   . |  | 32.3.041  Assign PN  LOOP ZOOM ... [toast] |
+| Audio  Track2 ...                                  |  | (status line)                              |
+| -- meters, R/S/M dots --                           |  | FX 5: TrueVerb Mono [Bypass: Off] (Trk 1)  |
++----------------------------------------------------+  +--------------------------------------------+
+```
+
+### Compact (the main HUD)
+
+| Where | Shows |
 |---|---|
-| Mode (large, colored) | `PAN` (amber), `SEND A (1)` (cyan), `SEND B (2)` (violet), `SEND C (3)` (green) |
-| `Tracking \| Trk 9-16` | Mode, then the tracks on the 8 strips (`Buses` when Master switched them to buses). `Trk ?` until the first Track Selection press; `Trk ~17-24` = estimated after Bank/Channel moves, confirmed by the next select |
-| `Sel 12 Vocals` | Selected track number and name |
-| Transport | `STOP` / `PLAY` / `REC`, from Cakewalk |
+| Large, colored (top left) | The Track Control knob mode: `PAN` (amber), `SEND A (1)` (cyan), `SEND B (2)` (violet), `SEND C (3)` (green) |
+| `Tracking \| Trk 9-16` | The mode, then the tracks on the 8 strips, or `Buses` after Master. `Trk ?` until the first Track Selection press; `Trk ~17-24` = estimated after Bank/Channel moves, confirmed by the next select |
+| `Sel 12 Vocals` | The selected track's number and name |
+| `STOP` / `PLAY` / `REC` | Cakewalk's transport |
 | Time | Bars.beats.ticks (or SMPTE), from Cakewalk |
-| `Assign SE` | Cakewalk's assignment display (`PN` = pan, `SE` = sends) |
-| Badges | **LOOP**, **ZOOM** (crossfader zoom mode), **METERS** (Cakewalk meters on), **SHIFT** / **SHIFT 1x** / **SHIFT LOCK** (held / one-shot / locked); dim = off |
-| Toast (right) | ~1 s message for each action: `Tracking mode` / `Mixing mode`, `Undo` / `Redo`, `Marker inserted`, `Next marker`, `Selection start = playhead`, `Loop <- selection`, `Punch <- selection`, `Auto-punch toggled`, `Metronome (rec) toggled`, `Tracks` / `Buses`, `Send B`, `Bank >`, `Channel <`, `Go to start`, `Stop all`, `Zoom: fit project`, `Cakewalk meters on`, and Cakewalk's `Track 12: "Vocals"` |
-| Status line | `no link to apc40sonar` (app not running), `Cakewalk idle` (no feedback lately), red `Strip layout!` (Cakewalk flipped the knobs to one track) |
-| Strips (expanded layout) | Per strip: name (a knob's value briefly replaces it, in white), param label or value, R/S/M dots, level meter with clip mark; selected strip highlighted |
+| `Assign PN` | Cakewalk's assignment display (`PN` = pan, `SE` = sends) |
+| Badges | **LOOP** (loop on), **ZOOM** (crossfader zoom active), **METERS** (Cakewalk sends meters), **SHIFT** / **SHIFT 1x** / **SHIFT LOCK** (held / one-shot / locked). Dim = off |
+| Toast (right) | About a second of text for each action the panel has no light for: `Undo`, `Redo`, `Marker inserted`, `Next marker`, `Loop <- selection`, `Auto-punch toggled`, `Tracks` / `Buses`, `Send B`, `Bank >`, `Go to start`, `Zoom: fit project`, `Tracking mode`, `Next plug-in`, `Parameters 9-16`, `Bypass: On`, `Velocity 96`, `Plug-in control ready`, Cakewalk's own `Track 12: "Vocals"`, ... |
+| Status line | Empty when all is well. `no link to apc40sonar` (the app is not running), `Cakewalk idle` (no feedback lately), `no Cakewalk feedback port` / `no Cakewalk control port` (a loopMIDI cable is missing), red `Strip layout!` (Cakewalk flipped the knobs to one track) |
+| Plug-in line (pink) | What the Device Control knobs control: `FX 5: TrueVerb Mono  [Bypass: Off]  (Track 1: "Audio")`. `[...]` is the plug-in's on/off switch, when it has one; `(empty slot)` = no plug-in there; `connecting to Cakewalk's C4 surface...` while it sets up. Hidden without the C4 surface |
 
-Mouse: drag to move; right-click for Compact / Expanded, Opacity, Quit HUD. Clicking it
-never takes keyboard focus from Cakewalk.
+All text has a fixed width and long text is cut with "…", so the HUD never changes size.
+
+### Expanded
+
+Right-click > **Expanded** (or `HUD_LAYOUT=expanded`) adds two rows to the **left** of the
+compact HUD, so the window stays one short band:
+
+- **Parameters** (with the C4 surface): the names and current values of the 8 parameters
+  on the Device Control knobs, knob 1 on the left.
+- **Strips:** per track strip, the name (a knob's value briefly replaces it, in white),
+  Cakewalk's second LCD line, R / S / M dots (record, solo, mute), and a level meter with a
+  clip mark. The selected strip is highlighted.
+
+### Moving it
+
+- **Drag** it anywhere with the left mouse button. It remembers the spot (in
+  `.hud-position.json` next to `.env`) and keeps its **right edge** there, so Expanded
+  grows to the left.
+- **Right-click** menu: Compact / Expanded, Opacity, **Reset position**, Quit HUD.
+- Without a dragged spot it sits in the `HUD_POSITION` corner (default top right),
+  `HUD_MARGIN` pixels in (default `50,12`: 50 from the right, 12 from the top).
+- If the remembered spot is on a monitor that is no longer there, the HUD comes back to its
+  default corner. You can also start the app with `uv run apc40sonar --reset-hud-position`.
+
+### Settings (`.env`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `HUD` | `on` | Open the HUD with the app (`--hud` / `--no-hud` override it) |
+| `HUD_LAYOUT` | `compact` | `compact` or `expanded` |
+| `HUD_POSITION` | `top-right` | Corner: `top-left`, `top-right`, `bottom-left`, `bottom-right`, or `x,y` |
+| `HUD_MARGIN` | `50,12` | Gap from that corner in pixels: sideways, then up/down |
+| `HUD_MONITOR` | `0` | Which monitor (0 = the main one) |
+| `HUD_OPACITY` | `0.85` | 0.2 (see-through) to 1.0 (solid) |
+| `HUD_TOPMOST` | `on` | Keep it above other windows |
+| `HUD_CLICK_THROUGH` | `off` | Clicks go through it to Cakewalk (it can then only be placed with the settings) |
+| `HUD_TOAST_MS` | `1200` | How long a toast stays |
+| `HUD_LCD` | `on` | Read Cakewalk's display text (track names, values, messages) |
+
+To start a HUD by hand for an app that is already running:
+`uv run python -m apc40sonar.hud`.
 
 ## Playhead step sizes
 
@@ -273,6 +383,9 @@ goes dark: a dark APC40 means the app is not running.
 After the lightshow the panel rests in:
 
 - Knob mode **Pan**, Pan button lit, Track Control rings centered
-- Device Control rings centered (pan style)
+- Device Control rings centered (pan style), until the C4 surface connects (about a
+  second, with a project open); then they show the selected track's first plug-in (HUD
+  toast `Plug-in control ready`)
+- The HUD in its default corner, or where you last dragged it
 - **Tracking** mode, **Scene 1** lit; strips on Tracks
 - Grid dark until Cakewalk sends meters or LED state

@@ -28,6 +28,7 @@ Recognized keys (all optional; defaults match the documented topology):
     HUD_PORT          HUD UDP port on 127.0.0.1       default: 47040
     HUD_POSITION      top-left/top-right/bottom-*/x,y default: top-right
     HUD_MONITOR       monitor index for placement     default: 0
+    HUD_MARGIN        x,y gap from the corner, pixels default: 50,12
     HUD_OPACITY       window alpha 0.2-1.0            default: 0.85
     HUD_TOPMOST       keep the HUD above other windows default: on
     HUD_CLICK_THROUGH mouse passes through the HUD    default: off
@@ -49,6 +50,11 @@ Recognized keys (all optional; defaults match the documented topology):
     SEQ_EDITOR_PORT   editor UDP port (commands: +1)    default: 47041
     SEQ_DIR           saved pattern + .mid exports      default: patterns
     SEQ_DISPLAY_LEAD_MS  playhead drawn this far ahead  default: 40
+    C4_OUT_PORT       C4 surface, app -> Cakewalk    default: C4-IN
+    C4_IN_PORT        C4 surface, Cakewalk -> app    default: C4-OUT
+    C4                plug-in control via the C4      default: on
+    C4_KNOB_STEP_LIMIT  max C4 V-pot speed per event  default: 3
+    C4_RESET_ON_SELECT  first plug-in/page on select  default: on
 
 SEQ_NOTES / SEQ_CHANNEL / SEQ_STEPS only shape a new pattern: once the editor
 or the APC40 changed it, ``SEQ_DIR/current.json`` is loaded instead. A
@@ -83,6 +89,7 @@ DEFAULTS = {
     "HUD_PORT": "47040",
     "HUD_POSITION": "top-right",
     "HUD_MONITOR": "0",
+    "HUD_MARGIN": "50,12",
     "HUD_OPACITY": "0.85",
     "HUD_TOPMOST": "on",
     "HUD_CLICK_THROUGH": "off",
@@ -104,6 +111,11 @@ DEFAULTS = {
     "SEQ_EDITOR_PORT": "47041",
     "SEQ_DIR": "patterns",
     "SEQ_DISPLAY_LEAD_MS": "40",
+    "C4_OUT_PORT": "C4-IN",
+    "C4_IN_PORT": "C4-OUT",
+    "C4": "on",
+    "C4_KNOB_STEP_LIMIT": "3",
+    "C4_RESET_ON_SELECT": "on",
 }
 
 STEP_UNITS = ("measure", "beat", "tick", "jog")
@@ -136,6 +148,7 @@ class Config:
     hud_port: int = 47040
     hud_position: str = "top-right"
     hud_monitor: int = 0
+    hud_margin: tuple[int, int] = (50, 12)
     hud_opacity: float = 0.85
     hud_topmost: bool = True
     hud_click_through: bool = False
@@ -157,6 +170,11 @@ class Config:
     seq_editor_port: int = 47041
     seq_dir: Path = Path("patterns")
     seq_display_lead_ms: int = 40
+    c4_out_port: str = "C4-IN"
+    c4_in_port: str = "C4-OUT"
+    c4: bool = True
+    c4_knob_step_limit: int = 3
+    c4_reset_on_select: bool = True
     env_path: Path | None = None
 
 
@@ -221,6 +239,21 @@ def _as_float(values: dict[str, str], key: str, default: float) -> float:
         return float(str(values[key]).strip())
     except (KeyError, ValueError):
         return default
+
+
+def _as_pair(values: dict[str, str], key: str, default: tuple[int, int]) -> tuple[int, int]:
+    """Parse ``"x,y"`` (or one number for both) as two integers, falling back to *default*."""
+
+    parts = str(values.get(key, "")).replace(",", " ").split()
+    try:
+        numbers = [int(p) for p in parts]
+    except ValueError:
+        return default
+    if len(numbers) == 1:
+        return numbers[0], numbers[0]
+    if len(numbers) == 2:
+        return numbers[0], numbers[1]
+    return default
 
 
 def _as_choice(values: dict[str, str], key: str, choices: tuple[str, ...], default: str) -> str:
@@ -329,6 +362,7 @@ def load_config(
         hud_port=_as_int(values, "HUD_PORT", 47040),
         hud_position=str(values["HUD_POSITION"]).strip().lower() or "top-right",
         hud_monitor=max(0, _as_int(values, "HUD_MONITOR", 0)),
+        hud_margin=_as_pair(values, "HUD_MARGIN", (50, 12)),
         hud_opacity=min(max(_as_float(values, "HUD_OPACITY", 0.85), 0.2), 1.0),
         hud_topmost=_as_bool(values, "HUD_TOPMOST", True),
         hud_click_through=_as_bool(values, "HUD_CLICK_THROUGH", False),
@@ -350,6 +384,11 @@ def load_config(
         seq_editor_port=_as_int(values, "SEQ_EDITOR_PORT", 47041),
         seq_dir=_as_dir(values["SEQ_DIR"], resolved, cwd),
         seq_display_lead_ms=min(500, max(0, _as_int(values, "SEQ_DISPLAY_LEAD_MS", 40))),
+        c4_out_port=values["C4_OUT_PORT"],
+        c4_in_port=values["C4_IN_PORT"],
+        c4=_as_bool(values, "C4", True),
+        c4_knob_step_limit=min(15, max(1, _as_int(values, "C4_KNOB_STEP_LIMIT", 3))),
+        c4_reset_on_select=_as_bool(values, "C4_RESET_ON_SELECT", True),
         env_path=resolved,
     )
 

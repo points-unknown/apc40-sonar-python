@@ -3,8 +3,13 @@
 Standalone Python integration between an **original Akai APC40** and **Cakewalk by
 BandLab**. The APC40 becomes a Mackie Control surface for Cakewalk: an eight-channel mixer
 (tracks or buses) with pan and three sends, transport, playhead scrubbing, markers,
-loop and punch, timeline zoom, level meters on the clip grid, and a small on-screen HUD,
-with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and rings.
+loop and punch, timeline zoom, level meters on the clip grid, **plug-in control** on the
+Device Control knobs, a **drum step sequencer** on the clip grid, and a small on-screen
+HUD, with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and rings.
+
+Three modes on the Scene buttons: **1 Tracking** (record and edit: undo, markers, loop,
+punch), **2 Step Sequencer** (the grid is a drum pattern, with an editor window),
+**3 Mixing** (the utility row picks the plug-in and its parameters).
 
 **What every button does:** [`docs/quick-reference.md`](docs/quick-reference.md).
 
@@ -15,7 +20,8 @@ with **bidirectional feedback** so Cakewalk state drives the APC40 LEDs and ring
 ## Quick start
 
 Requirements: **Python 3.14** and **uv**; a physical `Akai APC40`; and two loopMIDI cables
-(`APC40-IN`, `APC40-OUT`). **New here? Follow
+(`APC40-IN`, `APC40-OUT`). Optional: two more for the step sequencer (`APC40-SEQ`,
+`APC40-CLOCK`) and two for plug-in control (`C4-IN`, `C4-OUT`). **New here? Follow
 [`docs/setup-loopmidi-and-cakewalk.md`](docs/setup-loopmidi-and-cakewalk.md)** for the
 step-by-step loopMIDI and Cakewalk setup, including the one-time **Mackie Control preset**
 (meters, master fader, F1 metronome, F2 auto-punch, *Select highlights track*) that the
@@ -46,17 +52,20 @@ is a launcher that finds `uv` automatically.
 ### On-screen HUD
 
 The APC40 has no display, so the app shows a small always-on-top window with the knob
-mode, track window, selected track, transport, time, and a short message for each
-action. It opens automatically with `uv run apc40sonar`. To run without it:
+mode, track window, selected track, transport, time, the plug-in on the Device knobs, and
+a short message for each action. It opens automatically with `uv run apc40sonar`. To run
+without it:
 
 ```bat
 uv run apc40sonar --no-hud
 ```
 
 or set `HUD=off` in `.env` to turn it off for good.
-`HUD_LAYOUT=expanded` adds the 8 strips with track names, values and meters. Drag the
-window to move it; right-click for layout, opacity and Quit. The HUD runs as its own
-process and closes with the app. To attach one to an app that is already running:
+`HUD_LAYOUT=expanded` (or right-click > Expanded) adds, to its left, the 8 plug-in
+parameters and the 8 strips with track names, values and meters. Drag the window to move
+it; it remembers the spot (`--reset-hud-position` or right-click > Reset position forgets
+it). The HUD runs as its own process and closes with the app. To attach one to an app that
+is already running:
 
 ```bat
 uv run python -m apc40sonar.hud
@@ -80,6 +89,9 @@ APC40_MODE=generic           # generic | ableton | alt-ableton
 KNOB_STEP_LIMIT=3            # max V-pot steps per knob event
 KNOB_NOISE_THRESHOLD=4       # ignore knob steps larger than this (0 disables)
 HUD=on                       # small always-on-top status window (off = none)
+HUD_MARGIN=50,12             # HUD gap from its corner (top right), x,y pixels
+C4_OUT_PORT=C4-IN            # plug-in control (optional), app -> Cakewalk
+C4_IN_PORT=C4-OUT            # ... Cakewalk -> app
 CUE_STEP=1 beat              # playhead per Cue Level detent (measure | beat | tick | jog)
 SHIFT_CUE_STEP=30 tick       # ... with Shift held (fine)
 NUDGE_STEP=1 measure         # playhead per Nudge press

@@ -64,6 +64,14 @@ class HudSnapshot:
     strip_layout: bool = False  # Cakewalk knobs flipped to channel-strip layout
     meter_levels: tuple[int, ...] = _blank(0)
     meter_clips: tuple[bool, ...] = _blank(False)
+    # Plug-in on the Device knobs (Cakewalk's C4 surface): "off" / "waiting" / "ready".
+    c4_state: str = "off"
+    c4_strip: str = ""  # 'Track 3: "Vox"' from Cakewalk's banner
+    c4_slot: int | None = None  # 1-based FX slot
+    c4_plugin: str | None = None  # None: that slot is empty
+    c4_labels: tuple[str, ...] = _blank()  # parameter names of the 8 knobs
+    c4_values: tuple[str, ...] = _blank()
+    c4_switch: str = ""  # 'Bypass: Off' when the knobs skip the plug-in's switch
     toasts: tuple[tuple[int, str], ...] = ()  # (id, text), oldest first
 
 

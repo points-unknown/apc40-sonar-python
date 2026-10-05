@@ -13,6 +13,7 @@ left mouse button; right-click for layout, opacity and Quit.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -37,6 +38,8 @@ FONT_MONO = "Consolas"
 METER_WIDTH = 58
 METER_HEIGHT = 12
 
+POSITION_FILE = ".hud-position.json"  # next to .env; where the HUD was dragged
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="apc40sonar.hud", description="apc40sonar on-screen HUD.")
@@ -44,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=None, help="UDP port (HUD_PORT).")
     parser.add_argument("--position", default=None, help="top-left/top-right/bottom-left/bottom-right or x,y.")
     parser.add_argument("--monitor", type=int, default=None, help="Monitor index (HUD_MONITOR).")
+    parser.add_argument("--margin", default=None, help="x,y gap from the corner in pixels (HUD_MARGIN).")
     parser.add_argument("--opacity", type=float, default=None, help="Window alpha 0.2-1.0.")
     parser.add_argument("--topmost", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--click-through", action=argparse.BooleanOptionalAction, default=None)
@@ -173,6 +177,8 @@ class HudApp:
         layout: str = "compact",
         toast_ms: int = 1200,
         parent_pid: int | None = None,
+        state_path: Path | None = None,
+        corner_margin: tuple[int, int] = (hv.MARGIN, hv.MARGIN),
     ) -> None:
         import tkinter as tk
 
@@ -190,6 +196,13 @@ class HudApp:
         self._dragged = False
         self._drag_from: tuple[int, int] | None = None
         self._size: tuple[int, int] | None = None
+        self._params_shown = False  # the parameter row exists only with a C4
+        # A dragged position, kept as the distance from the anchored corner so
+        # the window grows away from it; saved in state_path for the next run.
+        self.state_path = state_path
+        self.margin: tuple[int, int] | None = None
+        self.corner_margin = corner_margin  # the default gap from the corner (HUD_MARGIN)
+        self._load_position()
 
         root = self.root = tk.Tk()
         root.title("apc40sonar HUD")
@@ -222,25 +235,31 @@ class HudApp:
         tk = self.tk
         outer = self.outer = tk.Frame(self.root, bg=hv.BG, padx=10, pady=6)
         outer.pack(fill="both", expand=True)
+        # The compact HUD on the right; the expanded rows grow out to its left,
+        # so the window stays short (it fits in Cakewalk's top bar).
+        core = self.core = tk.Frame(outer, bg=hv.BG)
+        core.pack(side="right", anchor="n")
+        extra = self.extra = tk.Frame(outer, bg=hv.BG)
 
-        top = tk.Frame(outer, bg=hv.BG)
+        top = tk.Frame(core, bg=hv.BG)
         top.pack(fill="x")
-        self.mode = self._label(top, size=15, bold=True)
+        # Fixed widths (characters) so changing text never resizes the window.
+        self.mode = self._label(top, size=15, bold=True, width=8, anchor="w")
         self.mode.pack(side="left")
-        self.bank = self._label(top, size=10, fg="#b8bdc7")
+        self.bank = self._label(top, size=10, fg="#b8bdc7", width=hv.BANK_CHARS, anchor="w")
         self.bank.pack(side="left", padx=(14, 0))
-        self.selection = self._label(top, size=10)
+        self.selection = self._label(top, size=10, width=hv.SELECTION_CHARS, anchor="w")
         self.selection.pack(side="left", padx=(10, 0))
-        self.transport = self._label(top, size=11, bold=True)
+        self.transport = self._label(top, size=11, bold=True, width=7, anchor="e")
         self.transport.pack(side="right")
 
-        mid = tk.Frame(outer, bg=hv.BG)
+        mid = tk.Frame(core, bg=hv.BG)
         mid.pack(fill="x")
         self.time = self._label(mid, size=11, mono=True)
         self.time.pack(side="left")
         self.assignment = self._label(mid, size=9, mono=True, fg=hv.DIM)
         self.assignment.pack(side="left", padx=(10, 0))
-        self.toast = self._label(mid, size=10, bold=True, fg="#ffffff")
+        self.toast = self._label(mid, size=10, bold=True, fg="#ffffff", width=hv.TOAST_CHARS, anchor="e")
         self.toast.pack(side="right")
         self.badges = {}
         for name in reversed(("LOOP", "ZOOM", "METERS", "SHIFT")):
@@ -248,10 +267,23 @@ class HudApp:
             badge.pack(side="right", padx=(0, 6))
             self.badges[name] = badge
 
-        self.status = self._label(outer, size=8, fg=hv.DIM, anchor="w")
+        self.status = self._label(core, size=8, fg=hv.DIM, anchor="w")
         self.status.pack(fill="x")
+        self.plugin = self._label(core, size=9, fg=hv.DEVICE_COLOR, anchor="w")  # packed when set
 
-        strips = self.strips_frame = tk.Frame(outer, bg=hv.BG, pady=4)
+        # Expanded: the 8 Device knob parameters above the 8 strips.
+        params = self.params_frame = tk.Frame(extra, bg=hv.BG, pady=0)
+        self.param_widgets = []
+        for i in range(hud_state.STRIPS):
+            cell = tk.Frame(params, bg=hv.PANEL, padx=3, pady=2)
+            cell.grid(row=0, column=i, padx=1, sticky="nsew")
+            name = self._label(cell, size=9, mono=True, bg=hv.PANEL, fg=hv.DEVICE_COLOR, width=7, anchor="w")
+            name.pack(fill="x")
+            value = self._label(cell, size=9, mono=True, bg=hv.PANEL, fg="#b8bdc7", width=7, anchor="w")
+            value.pack(fill="x")
+            self.param_widgets.append((name, value))
+
+        strips = self.strips_frame = tk.Frame(extra, bg=hv.BG, pady=0)
         self.strip_widgets = []
         for i in range(hud_state.STRIPS):
             cell = tk.Frame(strips, bg=hv.PANEL, padx=3, pady=2)
@@ -267,6 +299,7 @@ class HudApp:
         for widget in self._all_widgets(self.root):
             widget.bind("<ButtonPress-1>", self._drag_start)
             widget.bind("<B1-Motion>", self._drag_move)
+            widget.bind("<ButtonRelease-1>", self._drag_end)
             widget.bind("<Button-3>", self._popup)
 
     def _all_widgets(self, widget):
@@ -287,6 +320,7 @@ class HudApp:
                 label=f"{round(value * 100)} %", variable=self.opacity, value=value, command=self._apply_opacity
             )
         menu.add_cascade(label="Opacity", menu=opacity)
+        menu.add_command(label="Reset position", command=self._reset_position)
         menu.add_separator()
         menu.add_command(label="Quit HUD", command=self.root.destroy)
 
@@ -302,6 +336,51 @@ class HudApp:
         self.root.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")
         self._dragged = True
 
+    def _drag_end(self, _event) -> None:
+        """Keep the dragged spot: as a distance from the anchored corner, saved for next time."""
+
+        self._drag_from = None
+        if not self._dragged:
+            return
+        self._dragged = False
+        root = self.root
+        size = (root.winfo_reqwidth(), root.winfo_reqheight())
+        self.margin = hv.corner_margin(self._corner(), self._area(), size, (root.winfo_x(), root.winfo_y()))
+        self._save_position()
+
+    def _reset_position(self) -> None:
+        self.margin = None
+        self._save_position()
+        self._place()
+
+    def _corner(self) -> str:
+        corner, _xy = hv.parse_position(self.position)
+        return "top-left" if corner == "xy" and self.margin is not None else self.position
+
+    def _load_position(self) -> None:
+        """A dragged position from an earlier run, if it was made with the same settings."""
+
+        if self.state_path is None:
+            return
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if data.get("position") == self.position and data.get("monitor") == self.monitor:
+                self.margin = (int(data["margin"][0]), int(data["margin"][1]))
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            pass
+
+    def _save_position(self) -> None:
+        if self.state_path is None:
+            return
+        try:
+            if self.margin is None:
+                self.state_path.unlink(missing_ok=True)
+            else:
+                data = {"position": self.position, "monitor": self.monitor, "margin": list(self.margin)}
+                self.state_path.write_text(json.dumps(data), encoding="utf-8")
+        except OSError:
+            log.warning("cannot save the HUD position to %s", self.state_path, exc_info=True)
+
     def _popup(self, event) -> None:
         try:
             self.menu.tk_popup(event.x_root, event.y_root)
@@ -312,20 +391,34 @@ class HudApp:
         self.root.attributes("-alpha", self.opacity.get())
 
     def _apply_layout(self) -> None:
+        self.params_frame.pack_forget()
         if self.layout.get() == "expanded":
+            self.extra.pack(side="right", anchor="n", padx=(0, 12))
             self.strips_frame.pack(fill="x")
+            if self._params_shown:
+                self.params_frame.pack(fill="x", before=self.strips_frame, pady=(0, 2))
         else:
-            self.strips_frame.pack_forget()
+            self.extra.pack_forget()
         self.root.update_idletasks()
         if not self._dragged:
             self._place()
 
+    def _areas(self) -> list[tuple[int, int, int, int]]:
+        root = self.root
+        return _monitor_work_areas() or [(0, 0, root.winfo_screenwidth(), root.winfo_screenheight())]
+
+    def _area(self) -> tuple[int, int, int, int]:
+        areas = self._areas()
+        return areas[self.monitor] if self.monitor < len(areas) else areas[0]
+
     def _place(self) -> None:
         root = self.root
-        areas = _monitor_work_areas() or [(0, 0, root.winfo_screenwidth(), root.winfo_screenheight())]
-        area = areas[self.monitor] if self.monitor < len(areas) else areas[0]
         size = (root.winfo_reqwidth(), root.winfo_reqheight())
-        x, y = hv.place_window(self.position, area, size)
+        area = self._area()
+        x, y = hv.place_window(self._corner(), area, size, self.corner_margin if self.margin is None else self.margin)
+        if self.margin is not None and not hv.on_screen((x, y), size, self._areas()):
+            # Dragged onto a monitor that is gone or moved: back to the default spot.
+            x, y = hv.place_window(self.position, area, size, self.corner_margin)
         root.geometry(f"+{x}+{y}")
 
     # -- periodic --------------------------------------------------------
@@ -394,9 +487,21 @@ class HudApp:
         for name, color in view.badges:
             s(self.badges[name], fg=color)
         s(self.badges["SHIFT"], text=view.shift_text)
+        s(self.plugin, text=view.plugin_text)
+        if bool(view.plugin_text) != bool(self.plugin.winfo_manager()):
+            if view.plugin_text:
+                self.plugin.pack(fill="x", after=self.status)
+            else:
+                self.plugin.pack_forget()
+        if bool(view.params) != self._params_shown:
+            self._params_shown = bool(view.params)
+            self._apply_layout()
 
         if self.layout.get() != "expanded":
             return
+        for (name, value), (label, text) in zip(self.param_widgets, view.params):
+            s(name, text=label)
+            s(value, text=text)
         for (cell, name, value, canvas), strip in zip(self.strip_widgets, view.strips):
             bg = hv.SELECTED_BG if strip.selected else hv.PANEL
             s(cell, bg=bg)
@@ -449,12 +554,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         receiver,
         position=pick(args.position, cfg.hud_position),
         monitor=pick(args.monitor, cfg.hud_monitor),
+        corner_margin=config_module._as_pair({"m": args.margin}, "m", cfg.hud_margin) if args.margin else cfg.hud_margin,
         opacity=min(max(pick(args.opacity, cfg.hud_opacity), 0.2), 1.0),
         topmost=pick(args.topmost, cfg.hud_topmost),
         click_through=pick(args.click_through, cfg.hud_click_through),
         layout=pick(args.layout, cfg.hud_layout),
         toast_ms=pick(args.toast_ms, cfg.hud_toast_ms),
         parent_pid=args.parent_pid,
+        state_path=(cfg.env_path.parent if cfg.env_path else Path.cwd()) / POSITION_FILE,
     )
     try:
         app.run()

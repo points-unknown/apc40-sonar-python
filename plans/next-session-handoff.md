@@ -71,12 +71,18 @@ working tree clean. Everything under "Built" is **verified on the user's hardwar
 
 ## Next, in priority order
 
-1. **Mixing mode = C4 second surface** per [`c4-surface-plan.md`](c4-surface-plan.md).
-   The user already created the `C4-IN` / `C4-OUT` loopMIDI cables. Still needed: a
-   *Mackie Control C4* surface in Cakewalk (restart Cakewalk after changing devices!),
-   answer the C4 handshake, `c4` module, Device knobs -> C4 row 1, 58-61 in Mixing =
-   parameter page / next plug-in / bypass, C4 LCD text for the HUD. Note the Device knobs
-   also set sequencer velocity while a pad is held in Scene 2; keep that working.
+1. **Plug-in knobs (C4) are built (2026-10-04, uncommitted until the user says so).**
+   Verified on hardware: handshake, Device knobs move plug-in parameters, Clip/Track steps
+   plug-ins in Mixing, the HUD plug-in line. Learned on hardware: **Cakewalk drops note 0,
+   so the C4's Split button cannot be pressed**; the C4 stays unsplit and the app pages its
+   own 8-knob window over the 32 bound parameters (`Engine._c4_window`). ProChannel
+   modules are listed as the first plug-ins (the user likes that). Plug-ins whose first
+   parameter is *Enable* / *Bypass* start the knobs at parameter 2; Device On/Off (59)
+   presses that switch. Still to test: < / > paging, Device On/Off, the on/off skip.
+   Open: project-switch behavior (Q2), knob speed (`C4_KNOB_STEP_LIMIT`).
+   HUD changes the same day: fixed text widths (no resizing), Expanded grows to the left,
+   dragged position saved in `.hud-position.json` (`HUD_MARGIN`, `--reset-hud-position`,
+   off-screen fallback), no banner toast.
 2. **Sequencer follow-ups** (`TODO.md`): several named patterns (maybe on Scenes 4-5),
    per-lane mute, note names in the editor matching Sonar's octave numbering (the editor
    shows 36 = C2; XLN says C1; Sonar's default says C3: the user was asked, no answer yet).

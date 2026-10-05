@@ -23,6 +23,7 @@ from collections import deque
 from typing import Callable, Sequence
 
 from . import apc40 as apc
+from . import c4
 from . import hud_state
 from . import mcu
 from . import mcu_display
@@ -240,14 +241,45 @@ APC_LATCHING_UTILITY = frozenset({
 })
 
 # Utility-row buttons that change with the mode; the rest of the row (62-65)
-# works the same in every mode. In Mixing, 58-61 are reserved for C4 plug-in
-# control (not built yet) and do nothing.
+# works the same in every mode. In Mixing, 58-61 control the plug-in (C4).
 TRACKING_ONLY = frozenset({
     apc.NOTE_UTIL_CLIP_TRACK,
     apc.NOTE_UTIL_DEVICE_ONOFF,
     apc.NOTE_UTIL_LEFT_ARROW,
     apc.NOTE_UTIL_RIGHT_ARROW,
 })
+
+# What the Device Control knobs drive in each mode: "c4" = 8 parameters of
+# the selected track's plug-in, through Cakewalk's Mackie Control C4 surface.
+# A held pad in the Step Sequencer still takes them for velocity.
+DEVICE_KNOB_TARGET = {"tracking": "c4", "sequencer": "c4", "mixing": "c4"}
+
+# Cakewalk's own parameter offset: how far each C4 page button moves it.
+C4_OFFSET_STEP = {c4.BANK_LEFT: -8, c4.BANK_RIGHT: 8, c4.PARAM_LEFT: -1, c4.PARAM_RIGHT: 1}
+
+# C4 setup: LED state counts as known once the LEDs have been quiet this long;
+# presses that get no LED answer are re-checked after the timeout.
+C4_LED_QUIET_FRAMES = 3
+C4_SETUP_TIMEOUT_FRAMES = 50
+C4_SETUP_ATTEMPTS = 4
+# A track select reaches Cakewalk on the main surface's cable; the C4 reset
+# waits this long so its banner names the new track.
+C4_RESET_DELAY_FRAMES = 3
+# This many Device knobs on one bank within one frame = a Track Selection dump.
+C4_DUMP_KNOBS = 3
+
+# A plug-in whose first parameter is its on/off switch (ProChannel modules say
+# "Enable", Cakewalk's own effects "Bypass"; the value reads On / Off): the
+# Device knobs start at parameter 2 and Device On/Off presses it. Cakewalk's
+# labels are cut to 6 characters.
+C4_SWITCH_LABELS = frozenset({"enable", "enabld", "bypass", "on", "off", "on/off", "power", "active"})
+C4_SWITCH_VALUES = frozenset({"on", "off"})
+# Device On/Off after Cakewalk's offset moved: go to offset 0, press the
+# switch, return. Each step waits this long for Cakewalk to rebind, and for its LCD to
+# go quiet; a step gives up after the timeout.
+C4_HOP_SETTLE_FRAMES = 5
+C4_HOP_QUIET_FRAMES = 3
+C4_HOP_TIMEOUT_FRAMES = 40
 
 # Cakewalk navigation-mode LEDs (none lit = normal navigation).
 NAV_LEDS = {
@@ -293,6 +325,9 @@ class Engine:
         seq_hold_frames: int = 50,
         seq_clock_frames: int = 75,
         seq_display_lead_ms: int = 40,
+        c4_send: Callable[[Sequence[int]], None] | None = None,
+        c4_knob_step_limit: int = 3,
+        c4_reset_on_select: bool = True,
     ) -> None:
         self.apc = apc_out
         self._mcu_send = mcu_send
@@ -437,6 +472,30 @@ class Engine:
         self._seq_knob_abs: dict[int, int] = {}
         self.seq_status = ""  # last editor-visible message (e.g. the exported file)
 
+        # Mackie Control C4 (plug-in control on the Device knobs); None when
+        # its cable is missing. State: "off" (no handshake yet), "waiting"
+        # (serial sent, setting up from its LEDs) or "ready".
+        self._c4_send = c4_send
+        self.c4_knob_step_limit = max(1, c4_knob_step_limit)
+        self.c4_reset_on_select = c4_reset_on_select
+        self.c4_state = "off"
+        self.c4_display = c4.C4Display()
+        self._c4_leds: dict[int, bool] = {}
+        self._c4_led_frame: int | None = None  # last LED message
+        self._c4_wait_since = 0  # handshake or last setup presses
+        self._c4_attempts = 0
+        self._c4_rings: list[int | None] = [None] * c4.VPOTS  # ring bytes of all 32 V-pots
+        self._c4_rings_pending = False  # re-render once a bank dump is over
+        self._c4_reset_at: int | None = None
+        self._c4_wrap_pending = False  # a Next plug-in press may run past the last
+        self._c4_knob_queue: list[tuple[int, int, int]] = []  # (bank, knob, value) this frame
+        self._c4_dump_until = 0  # Device knob readings only set baselines until then
+        self._c4_start: int | None = None  # V-pot under Device knob 1; None = first parameters
+        self._c4_shown_window = 0  # the window the rings were drawn for
+        self._c4_lcd_frame = 0  # last LCD write
+        self._c4_page_moves: list[int] = []  # C4 offset buttons since offset 0, to return there
+        self._c4_hop: dict | None = None  # Device On/Off in progress
+
     # ------------------------------------------------------------------
     # MCU output helpers
     # ------------------------------------------------------------------
@@ -489,18 +548,20 @@ class Engine:
             return
 
         # Device Control knobs report on the selected bank's channel (0-8) and
-        # drive the V-pots in device mode.
+        # drive the plug-in on the C4 (or the V-pots in device mode).
         if apc.CC_DEVICE_KNOB1 <= cc < apc.CC_DEVICE_KNOB1 + self.tracks:
             if channel < apc.DEVICE_BANKS:
-                self.device_bank = channel
+                self._set_device_bank(channel)
+                knob = cc - apc.CC_DEVICE_KNOB1 + 1
                 if self._seq_held and self.mode == "sequencer":
-                    self._seq_knob(cc - apc.CC_DEVICE_KNOB1 + 1, value)
+                    self._seq_knob(knob, value)
                     return
                 self._knob_dump.setdefault(channel, set()).add(cc)
                 self._knob_dump_frame = self._frame
-                if not self.mixer:
-                    store = self._device_knob_abs.setdefault(channel, {})
-                    self._relative_knob(store, cc - apc.CC_DEVICE_KNOB1 + 1, value)
+                if self._device_knobs_to_c4():
+                    self._c4_knob_queue.append((channel, knob, value))  # see _c4_knobs
+                elif not self.mixer:
+                    self._relative_knob(self._device_knob_abs.setdefault(channel, {}), knob, value)
             return
 
         # Cue Level (relative, channel not significant) -> jog: moves the now
@@ -525,10 +586,19 @@ class Engine:
             self._relative_knob(self._track_knob_abs, cc - apc.CC_TRACK_KNOB1 + 1, value)
 
     def _relative_knob(self, store: dict[int, int], index: int, value7: int) -> None:
+        delta = self._knob_delta(store, index, value7, self.knob_step_limit)
+        if delta:
+            self._send_mcu(mcu.vpot_delta(index, delta))
+            if index <= self.tracks:
+                self._vpot_frame[index - 1] = self._frame
+
+    def _knob_delta(self, store: dict[int, int], index: int, value7: int, limit: int) -> int:
+        """Steps an absolute APC40 knob reading moved since the last one (0 = none)."""
+
         previous = store.get(index)
         store[index] = value7
         if previous is None:
-            return
+            return 0
 
         delta = (value7 - previous) % 128
         if delta > 64:
@@ -542,17 +612,8 @@ class Engine:
         # a hard V-pot step, which is what made the parameter leap around.
         threshold = self.knob_noise_threshold
         if threshold and abs(delta) > threshold:
-            return
-
-        limit = self.knob_step_limit
-        if delta > limit:
-            delta = limit
-        elif delta < -limit:
-            delta = -limit
-        if delta:
-            self._send_mcu(mcu.vpot_delta(index, delta))
-            if index <= self.tracks:
-                self._vpot_frame[index - 1] = self._frame
+            return 0
+        return max(-limit, min(limit, delta))
 
     def on_apc_note(self, channel: int, note: int, velocity: int) -> None:
         pressed = velocity > 0
@@ -607,7 +668,7 @@ class Engine:
         # channel, 0-7 for Tracks 1-8 or 8 for Master. It is still one global
         # control, so fold the bank channel away.
         if note in apc.NOTE_UTIL_ROW and channel < apc.DEVICE_BANKS:
-            self.device_bank = channel
+            self._set_device_bank(channel)
             channel = 0
 
         # Other global controls are always on channel 0, which Track 1 also
@@ -787,6 +848,7 @@ class Engine:
     def _select_strip(self, strip: int) -> None:
         self._mcu_click(APC_TRACK_SELECT_NOTE + strip)
         self._select_press = (strip, self._frame)
+        self._c4_schedule_reset()
 
     def _after_press(self, mcu_note: int) -> None:
         """HUD bookkeeping for a surface button this app just pressed."""
@@ -901,6 +963,7 @@ class Engine:
         elif previous == "sequencer" and mode != "sequencer":
             self._seq_held.clear()
             self._render_grid_meters()
+        self._render_c4_rings(force=True)
 
     def _render_mode_leds(self) -> None:
         lit = MODE_SCENE[self.mode]
@@ -913,7 +976,9 @@ class Engine:
         if note in APC_LATCHING_UTILITY:
             self.apc.global_note(note, apc.LED_OFF, force=True)  # undo the local latch
         if note in TRACKING_ONLY and self.mode != "tracking":
-            return True  # Mixing: reserved for C4 plug-in control
+            if self.mode == "mixing":
+                self._on_c4_button(note, shifted)
+            return True
         if note == apc.NOTE_UTIL_CLIP_TRACK:
             self._mcu_click(mcu.NOTE_CW_REDO if shifted else mcu.NOTE_CW_UNDO)
             self.toast("Redo" if shifted else "Undo")
@@ -980,6 +1045,7 @@ class Engine:
             self._mcu_click(mcu.NOTE_CW_AUX)
             self._cw_buses = True
             self.toast("Buses")
+        self._c4_schedule_reset()  # the C4 follows: plug-ins of a bus or a track
 
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
@@ -1248,6 +1314,395 @@ class Engine:
         self._pending_track = None
 
     # ------------------------------------------------------------------
+    # Mackie Control C4: plug-in parameters on the Device knobs
+    # ------------------------------------------------------------------
+    #
+    # Cakewalk drops note 0, so the C4's Split button cannot be pressed and the
+    # C4 stays unsplit: its 32 V-pots are parameters offset+0 ... offset+31 of
+    # the selected strip's plug-in (V-pot n = row n // 8, column n % 8). The 8
+    # Device knobs are a window onto those 32 that the app pages itself; only
+    # past the 32nd parameter does it move Cakewalk's own offset.
+
+    def _send_c4(self, messages: Sequence[Sequence[int]]) -> None:
+        if self._c4_send is not None:
+            for message in messages:
+                self._c4_send(message)
+
+    def c4_connect(self) -> None:
+        """Start the C4 handshake: Wake-up (Cakewalk forgets an old serial),
+        then the serial reply. Cakewalk answers with a full refresh."""
+
+        if self._c4_send is None:
+            return
+        self._send_c4([c4.wake_up(), c4.serial_reply()])
+        self._c4_wait()
+
+    def _c4_wait(self) -> None:
+        self.c4_state = "waiting"
+        self._c4_leds.clear()
+        self._c4_led_frame = None
+        self._c4_wait_since = self._frame
+        self._c4_attempts = 0
+
+    def _device_knobs_to_c4(self) -> bool:
+        return self.c4_state == "ready" and DEVICE_KNOB_TARGET.get(self.mode) == "c4"
+
+    def _set_device_bank(self, channel: int) -> None:
+        """Track the APC40's Device Control bank (0-8).
+
+        A bank switch dumps the new bank's eight knob positions; those only
+        set baselines (never turns), and the C4 rings are redrawn on the new
+        bank once the dump is over.
+        """
+
+        if channel == self.device_bank:
+            return
+        self.device_bank = channel
+        self._device_knob_abs.pop(channel, None)
+        self._c4_rings_pending = True
+
+    def on_c4_message(self, message: Sequence[int]) -> None:
+        """Cakewalk's C4 output: the serial query, LEDs, rings and LCD text."""
+
+        raw = tuple(message)
+        if len(raw) < 2:
+            return
+        if raw[0] == 0xF0:
+            if c4.is_serial_query(raw):
+                self._send_c4([c4.serial_reply()])
+                if self.c4_state != "waiting":
+                    log.info("C4: Cakewalk asked for the serial; setting up again")
+                    self._c4_wait()
+                return
+            parsed = c4.parse_lcd(raw)
+            if parsed is not None:
+                row, offset, text = parsed
+                banner = self.c4_display.apply(offset, text, row)
+                self._c4_lcd_frame = self._frame
+                if banner is not None:
+                    self._on_c4_banner()
+                window = self._c4_window()
+                if window != self._c4_shown_window:
+                    self._render_c4_rings(force=True)  # the switch appeared or went
+            return
+        if len(raw) < 3:
+            return
+        status = raw[0] & 0xF0
+        if status == 0x90:
+            on = raw[2] != 0
+            was = self._c4_leds.get(raw[1])
+            if self.c4_state == "waiting":
+                log.info("C4 LED %02X %s", raw[1], "on" if on else "off")
+            self._c4_leds[raw[1]] = on
+            self._c4_led_frame = self._frame
+            if raw[1] in (c4.TRACK, c4.FUNCTION) and was and not on:
+                self._render_c4_rings(force=True)
+        elif status == 0xB0 and c4.CC_RING1 <= raw[1] < c4.CC_RING1 + c4.VPOTS:
+            vpot = raw[1] - c4.CC_RING1
+            self._c4_rings[vpot] = raw[2]
+            knob = vpot - self._c4_window()
+            if 0 <= knob < self.tracks:
+                self._render_c4_ring(knob)
+
+    def _c4_knobs(self) -> None:
+        """Turn this frame's Device knob readings into C4 V-pot turns.
+
+        Track Selection makes the APC40 send all eight positions at once, also
+        for the bank already selected, and those can differ a little from the
+        last readings (ring writes re-reference the knobs). A frame with several
+        knobs on one bank is such a dump: it only sets baselines, as does
+        anything shortly after it. Two hands never turn three knobs in 20 ms.
+        """
+
+        queue, self._c4_knob_queue = self._c4_knob_queue, []
+        if not queue:
+            return
+        counts: dict[int, set[int]] = {}
+        for bank, knob, _value in queue:
+            counts.setdefault(bank, set()).add(knob)
+        if any(len(knobs) >= C4_DUMP_KNOBS for knobs in counts.values()):
+            self._c4_dump_until = self._frame + KNOB_DUMP_QUIET_FRAMES
+        dump = self._frame < self._c4_dump_until
+        for bank, knob, value in queue:
+            store = self._device_knob_abs.setdefault(bank, {})
+            if dump:
+                store[knob] = value
+                continue
+            delta = self._knob_delta(store, knob, value, self.c4_knob_step_limit)
+            vpot = self._c4_window() + knob - 1
+            if delta and vpot < c4.VPOTS and self.c4_state == "ready" and self._c4_hop is None:
+                self._c4_send(c4.vpot_delta(vpot // c4.COLS, vpot % c4.COLS, delta))
+
+    def _c4_tick(self) -> None:
+        self._c4_knobs()
+        if self._c4_hop is not None:
+            self._c4_hop_step()
+        if self.c4_state == "waiting":
+            led = self._c4_led_frame
+            if led is not None and (
+                (led >= self._c4_wait_since and self._frame - led >= C4_LED_QUIET_FRAMES)
+                or self._frame - self._c4_wait_since >= C4_SETUP_TIMEOUT_FRAMES
+            ):
+                self._c4_setup_step()
+        if self._c4_reset_at is not None and self._frame >= self._c4_reset_at:
+            self._c4_reset_at = None
+            self._c4_reset()
+        if self._c4_rings_pending and self._frame - self._knob_dump_frame >= KNOB_DUMP_QUIET_FRAMES:
+            self._c4_rings_pending = False
+            self._render_c4_rings(force=True)
+
+    def _c4_setup_step(self) -> None:
+        """Bring the C4 to channel-strip mode with assignment Plugin.
+
+        Its mode buttons toggle, so each press is decided from the LED state
+        and confirmed by the next LED update before more presses.
+        """
+
+        leds = self._c4_leds
+        presses: list[tuple[int, int, int]] = []
+        if leds.get(c4.TRACK):
+            presses.append(c4.button_release(c4.TRACK))
+        if leds.get(c4.FUNCTION):
+            presses += c4.click(c4.FUNCTION)
+        if not presses and not leds.get(c4.CHANNEL_STRIP):
+            presses += c4.click(c4.CHANNEL_STRIP)
+        lit = sorted(led for led, on in leds.items() if on)
+        pressed = [f"{m[1]:02X}" for m in presses if m[2]]
+        if presses and self._c4_attempts < C4_SETUP_ATTEMPTS:
+            self._c4_attempts += 1
+            log.info("C4 setup: LEDs lit %s; pressing %s", lit, pressed)
+            self._send_c4(presses)
+            self._c4_wait_since = self._frame
+            return
+        if presses:
+            log.warning("C4: its LEDs did not confirm the setup (lit %s, still needs %s); continuing anyway",
+                        lit, pressed)
+        self._send_c4(c4.assign_plugin_macro())
+        self.c4_state = "ready"
+        self._c4_reset()
+        self._render_c4_rings(force=True)
+        self.toast("Plug-in control ready")
+        log.info("C4 ready: Device knobs control the selected track's plug-in")
+
+    def _c4_schedule_reset(self) -> None:
+        if self.c4_state == "ready" and self.c4_reset_on_select:
+            self._c4_reset_at = self._frame + C4_RESET_DELAY_FRAMES
+
+    def _c4_reset(self) -> None:
+        """First plug-in, first parameters (M1 + Slot Down / Bank Left).
+
+        The plug-in slot and Cakewalk's parameter offset are not per track,
+        so a track with fewer plug-ins would otherwise leave the knobs on
+        nothing. The Slot Down also makes Cakewalk show the track and plug-in
+        banner.
+        """
+
+        if self.c4_state == "ready":
+            self._send_c4(c4.with_shift([c4.SLOT_DOWN, c4.BANK_LEFT]))
+            self._c4_first_page()
+
+    def _c4_first_page(self) -> None:
+        self._c4_start = None
+        self._c4_page_moves.clear()
+
+    # -- the knob window ---------------------------------------------------
+
+    def _c4_window(self) -> int:
+        """The V-pot (0-24) under Device knob 1."""
+
+        if self._c4_start is not None:
+            return self._c4_start
+        return 1 if self._c4_switch_shown() else 0
+
+    def _c4_offset(self) -> int:
+        """Parameters Cakewalk's own offset was moved by (an upper bound: it clamps)."""
+
+        return sum(C4_OFFSET_STEP[button] for button in self._c4_page_moves)
+
+    def _c4_has_params(self, first: int) -> bool:
+        display = self.c4_display
+        return any(display.label(v) or display.value(v) for v in range(first, min(first + self.tracks, c4.VPOTS)))
+
+    def _c4_page(self, step: int) -> None:
+        """Mixing < / >: move the knob window by *step* (+/-8, or +/-1 with Shift).
+
+        Inside the 32 bound V-pots the app only moves its window. Past them it
+        moves Cakewalk's offset (Bank / Param Left / Right), for big plug-ins.
+        """
+
+        window = self._c4_window()
+        last = c4.VPOTS - self.tracks
+        floor = 0 if abs(step) == 1 else min(window, 1 if self._c4_switch_shown() else 0)
+        if step > 0:
+            if window < last:
+                target = min(window + step, last)
+                if not self._c4_has_params(target + self.tracks - 1 if step == 1 else target):
+                    self.toast("No more parameters")
+                    return
+                self._c4_start = target
+            elif self.c4_display.label(c4.VPOTS - 1) or self.c4_display.value(c4.VPOTS - 1):
+                button = c4.BANK_RIGHT if step > 1 else c4.PARAM_RIGHT
+                self._send_c4(c4.click(button))
+                self._c4_page_moves.append(button)
+                self._c4_start = window
+            else:
+                self.toast("No more parameters")
+                return
+        else:
+            if window > floor:
+                self._c4_start = max(window + step, floor)
+            elif self._c4_page_moves:
+                button = c4.BANK_LEFT if step < -1 else c4.PARAM_LEFT
+                self._send_c4(c4.click(button))
+                self._c4_page_moves.append(button)
+                if self._c4_offset() <= 0:
+                    self._c4_page_moves.clear()
+                self._c4_start = window
+            else:
+                self.toast("First parameters")
+                return
+        self._render_c4_rings(force=True)
+        first = self._c4_offset() + self._c4_window() + 1
+        self.toast(f"Parameters {first}-{first + self.tracks - 1}")
+
+    # -- buttons and banner ------------------------------------------------
+
+    def _on_c4_button(self, note: int, shifted: bool) -> None:
+        """Mixing utility row: 58 plug-in, 59 on/off, 60/61 parameters (Shift: by one)."""
+
+        if self.c4_state != "ready":
+            self.toast("Plug-in control: no C4 surface")
+            return
+        if self._c4_hop is not None:
+            return  # Device On/Off is still moving Cakewalk's offset
+        self._flash_global(note)
+        if note == apc.NOTE_UTIL_DEVICE_ONOFF:
+            self._c4_toggle_switch()
+        elif note == apc.NOTE_UTIL_CLIP_TRACK:
+            # A new plug-in starts on its first parameters.
+            button = c4.SLOT_DOWN if shifted else c4.SLOT_UP
+            self._send_c4(c4.click(button) + c4.with_shift([c4.BANK_LEFT]))
+            self._c4_first_page()
+            self._c4_wrap_pending = button == c4.SLOT_UP
+            self.toast("Previous plug-in" if shifted else "Next plug-in")
+        elif note in (apc.NOTE_UTIL_LEFT_ARROW, apc.NOTE_UTIL_RIGHT_ARROW):
+            size = 1 if shifted else self.tracks
+            self._c4_page(size if note == apc.NOTE_UTIL_RIGHT_ARROW else -size)
+
+    def _on_c4_banner(self) -> None:
+        """Cakewalk named the track and plug-in; past the last plug-in, wrap to the first."""
+
+        display = self.c4_display
+        if display.plugin is None and self._c4_wrap_pending:
+            self._c4_wrap_pending = False
+            self._c4_reset()
+            return
+        self._c4_wrap_pending = False
+        # No toast: the HUD's plug-in line already shows this.
+        log.info("C4: %s, FX %s: %s", display.strip, display.slot, display.plugin or "no plug-in")
+
+    # -- rings -------------------------------------------------------------
+
+    def _c4_rings_shown(self) -> bool:
+        """C4 rings own the Device rings (not in its Track/Function modes or a velocity hold)."""
+
+        if self.c4_state != "ready" or DEVICE_KNOB_TARGET.get(self.mode) != "c4":
+            return False
+        if self._c4_leds.get(c4.TRACK) or self._c4_leds.get(c4.FUNCTION):
+            return False
+        return not (self._seq_held and self.mode == "sequencer")
+
+    def _render_c4_rings(self, *, force: bool = False) -> None:
+        self._c4_shown_window = self._c4_window()
+        for knob in range(self.tracks):
+            self._render_c4_ring(knob, force=force)
+
+    def _render_c4_ring(self, knob: int, *, force: bool = False) -> None:
+        """Device ring *knob* (0-7) from the V-pot it controls (off: none)."""
+
+        vpot = self._c4_window() + knob
+        value = self._c4_rings[vpot] if vpot < c4.VPOTS else 0
+        if value is None or not self._c4_rings_shown():
+            return
+        ring = mcu.decode_ring(value)
+        style = apc.RING_OFF if value == 0 else RING_STYLE_FROM_MCU[ring.mode]
+        bank = self.device_bank
+        self.apc.ring_style(apc.device_ring_style_cc(knob + 1), style, channel=bank, force=force)
+        position = mcu.ring_value_to_position(ring.value)
+        self.apc.ring_position(apc.device_ring_cc(knob + 1), position, channel=bank, force=force)
+
+    # -- the plug-in's on/off switch ---------------------------------------
+
+    def _c4_switch_shown(self) -> bool:
+        """The plug-in's first parameter is an on/off switch (by name, or an On / Off value).
+
+        Only known while Cakewalk's offset is 0 (V-pot 1 = parameter 1).
+        """
+
+        if self._c4_page_moves:
+            return False
+        display = self.c4_display
+        return display.label(0).lower() in C4_SWITCH_LABELS or display.value(0).lower() in C4_SWITCH_VALUES
+
+    def c4_params(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Names and values of what the 8 Device knobs control, for the HUD."""
+
+        display = self.c4_display
+        vpots = [self._c4_window() + k for k in range(self.tracks)]
+        return (tuple(display.label(v) if v < c4.VPOTS else "" for v in vpots),
+                tuple(display.value(v) if v < c4.VPOTS else "" for v in vpots))
+
+    def c4_switch_text(self) -> str:
+        """'Bypass: Off' when the plug-in has an on/off switch, else ''."""
+
+        if not self._c4_switch_shown():
+            return ""
+        return f"{self.c4_display.label(0) or 'On/off'}: {self.c4_display.value(0)}"
+
+    def _c4_toggle_switch(self) -> None:
+        """Device On/Off: push V-pot 1 (parameter 1, the plug-in's on/off switch).
+
+        If Cakewalk's offset was moved (a plug-in with over 32 parameters), go
+        back to offset 0 first, push, and replay the moves. Knob turns wait.
+        """
+
+        moves = list(self._c4_page_moves)
+        if not moves:
+            if not self._c4_switch_shown():
+                self.toast("This plug-in has no on/off switch")
+                return
+            self._send_c4(c4.click(c4.VPOT_PUSH1))
+            self._c4_hop = {"stage": "pushed", "sent": self._frame, "moves": []}
+            return
+        self._send_c4(c4.with_shift([c4.BANK_LEFT]))
+        self._c4_page_moves.clear()
+        self._c4_hop = {"stage": "first", "sent": self._frame, "moves": moves}
+
+    def _c4_hop_step(self) -> None:
+        hop = self._c4_hop
+        waited = self._frame - hop["sent"]
+        settled = waited >= C4_HOP_SETTLE_FRAMES and self._frame - self._c4_lcd_frame >= C4_HOP_QUIET_FRAMES
+        if not settled and waited < C4_HOP_TIMEOUT_FRAMES:
+            return
+        stage = hop["stage"]
+        if stage == "first":
+            if self._c4_switch_shown():
+                self._send_c4(c4.click(c4.VPOT_PUSH1))
+                hop.update(stage="pushed", sent=self._frame)
+                return
+            self.toast("This plug-in has no on/off switch")
+            stage = "pushed"  # nothing pressed: just go back
+        elif stage == "pushed":
+            self.toast(self.c4_switch_text() or "Plug-in on/off")
+        if stage == "pushed" and hop["moves"]:
+            self._send_c4([m for button in hop["moves"] for m in c4.click(button)])
+            self._c4_page_moves = list(hop["moves"])
+            hop.update(stage="back", sent=self._frame)
+            return
+        self._c4_hop = None
+        self._render_c4_rings(force=True)
+
+    # ------------------------------------------------------------------
     # Level meters
     # ------------------------------------------------------------------
 
@@ -1414,6 +1869,8 @@ class Engine:
         if self._seq_held.pop(cell) is not None:
             self.sequencer.cycle(*cell)
         self._render_seq_pad(track, row, force=True)
+        if not self._seq_held:
+            self._render_c4_rings(force=True)  # the velocity ring gives the knobs back
 
     def _seq_display_step(self) -> int | None:
         return self.sequencer.display_step(self.seq_display_lead_ms / 1000)
@@ -1649,6 +2106,7 @@ class Engine:
         self._settle_meter_toggle()
         self._zoom_idle()
         self._settle_knob_dump()
+        self._c4_tick()
         self._repeat_nudge()
         self._expire_shift()
         self._decay_meters()  # also keeps the HUD meters falling when the grid is off
@@ -1676,6 +2134,7 @@ class Engine:
 
         self._toast_id += 1
         self._toasts.append((self._toast_id, text))
+        log.info("action: %s", text)  # the log shows what each press did
 
     def hud_snapshot(self) -> hud_state.HudSnapshot:
         """Immutable picture of the state the on-screen HUD shows."""
@@ -1719,6 +2178,13 @@ class Engine:
             strip_layout=self.seven_seg.strip_layout(),
             meter_levels=tuple(self._meter_level),
             meter_clips=tuple(self._meter_clip),
+            c4_state=self.c4_state,
+            c4_strip=self.c4_display.strip,
+            c4_slot=self.c4_display.slot,
+            c4_plugin=self.c4_display.plugin,
+            c4_labels=self.c4_params()[0],
+            c4_values=self.c4_params()[1],
+            c4_switch=self.c4_switch_text(),
             toasts=tuple(self._toasts),
         )
 

@@ -150,3 +150,70 @@ def test_shift_badge_text_follows_the_shift_state():
         view = hv.build_view(HudSnapshot(shift=True, shift_state=state), {}, linked=True)
         assert view.shift_text == text
 
+
+
+def test_plugin_line_follows_the_c4_state():
+    assert hv.build_view(HudSnapshot()).plugin_text == ""
+    assert "connecting" in hv.build_view(HudSnapshot(c4_state="waiting")).plugin_text
+    ready = HudSnapshot(c4_state="ready")
+    assert hv.build_view(ready).plugin_text == "Plug-in knobs: select a track"
+    named = replace(ready, c4_slot=2, c4_plugin="Sonitus Delay", c4_strip='Track 3: "Vox"')
+    assert hv.build_view(named).plugin_text == 'FX 2: Sonitus Delay  (Track 3: "Vox")'
+    empty = replace(ready, c4_slot=4, c4_plugin=None)
+    assert hv.build_view(empty).plugin_text == "FX 4: (empty slot)"
+
+
+def test_parameters_show_only_with_a_ready_c4():
+    labels = ("Mix", "Time") + ("",) * 6
+    values = ("50%", "250ms") + ("",) * 6
+    snap = HudSnapshot(c4_labels=labels, c4_values=values)
+    assert hv.build_view(snap).params == ()
+    view = hv.build_view(replace(snap, c4_state="ready"))
+    assert view.params[:2] == (("Mix", "50%"), ("Time", "250ms"))
+
+
+def test_c4_fields_round_trip_through_json():
+    snap = HudSnapshot(c4_state="ready", c4_slot=1, c4_plugin=None, c4_labels=("a",) * 8)
+    data = json.loads(json.dumps(hud_state.to_dict(snap)))
+    assert hud_state.from_dict(data) == snap
+
+
+def test_corner_margin_is_the_inverse_of_place_window():
+    area = (0, 0, 3072, 1680)
+    size = (600, 120)
+    for position in ("top-right", "top-left", "bottom-right", "bottom-left"):
+        margin = hv.corner_margin(position, area, size, (2000, 30))
+        assert hv.place_window(position, area, size, margin) == (2000, 30)
+
+
+def test_a_right_anchored_window_grows_to_the_left():
+    area = (0, 0, 3072, 1680)
+    margin = hv.corner_margin("top-right", area, (600, 120), (2000, 30))
+    x, y = hv.place_window("top-right", area, (1400, 120), margin)
+    assert x + 1400 == 2000 + 600 and y == 30
+
+
+def test_plugin_line_shows_the_switch():
+    snap = HudSnapshot(c4_state="ready", c4_slot=5, c4_plugin="TrueVerb", c4_switch="Bypass: Off")
+    assert hv.build_view(snap).plugin_text == "FX 5: TrueVerb  [Bypass: Off]"
+
+
+def test_a_window_on_a_missing_monitor_is_not_on_screen():
+    areas = [(0, 0, 3072, 1680)]
+    assert hv.on_screen((2000, 12), (900, 130), areas)
+    assert hv.on_screen((3060, 12), (900, 130), areas) is False  # only 12 px left on screen
+    assert hv.on_screen((2000, -12), (900, 130), areas)  # dragged a little above the top edge
+    assert hv.on_screen((4000, 12), (900, 130), areas) is False  # a second monitor that is gone
+    assert hv.on_screen((4000, 12), (900, 130), areas + [(3072, 0, 5632, 1440)])
+
+
+def test_long_text_is_cut_so_the_hud_keeps_its_size():
+    assert hv.fit("short", 10) == "short"
+    assert hv.fit("Bus 1: Master | FX 2: ProChannel EQ", 12) == "Bus 1: Mast\u2026"
+    view = hv.build_view(HudSnapshot(), toast="x" * 80)
+    assert len(view.toast) == hv.TOAST_CHARS
+
+
+def test_bank_text_fits_the_longest_mode_and_estimated_range():
+    snap = HudSnapshot(mode="sequencer", bank_offset=16, bank_exact=False)
+    assert hv.build_view(snap).bank_text == "Sequencer | Trk ~17-24"

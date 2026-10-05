@@ -1,7 +1,23 @@
 # Plan: second surface "Mackie Control C4" for the Device Control knobs
 
-Status: research done, nothing implemented. Builds on the TODO item "Second surface: Mackie
-Control C4 for the Device Control knobs".
+Status: **built (2026-10-04), not yet tested on hardware.** As-built behavior is in
+`docs/GENERAL.md` (*Plug-in knobs (C4)*). Differences from this plan:
+
+- Ports are `C4-IN` / `C4-OUT` (the user's cable names), not `APC40-C4-*`.
+- **Split 1/3 is impossible:** Split is note 0 and Cakewalk drops note 0 (hardware,
+  2026-10-04). The C4 stays unsplit; all 32 V-pots are bound and the app pages its own
+  8-knob window over them (sections 2 and 4.1's Split steps are superseded).
+- The Device knobs drive the C4 in **every** mode (`engine.DEVICE_KNOB_TARGET`), not only
+  in Mixing; 58-61 control it in Mixing only.
+- Reset to the first plug-in / page and the past-the-last wrap use the **C4's Shift (M1) +
+  Slot Down / Bank Left** instead of counting presses (no slot/page mirrors). Checked in
+  the source: `OnSwitchModifier` shifts no parameters for M1 (`nShiftAmount` is 0 for M1),
+  so 0x0D is safe and is on the whitelist. Section 3's "never send 0x0D" is superseded.
+- Setup also fixes the focus (Spot Erase) and channel-strip mode from the LEDs, and
+  releases a stuck Track / toggles off Function. Track Selection and Master both reset.
+- The HUD shows the plug-in line and, expanded, the 8 parameter names/values.
+- Ring writes do not reset knob baselines; the existing noise gate handles the re-reference
+  as for the Track Control knobs.
 
 ## Summary
 

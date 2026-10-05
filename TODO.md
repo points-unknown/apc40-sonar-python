@@ -13,7 +13,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 314 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 386 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -30,7 +30,7 @@ modes.
 |---|---|---|
 | 1 | **Tracking** - utility row = editing / loop / punch (below) | To build |
 | 2 | **Step Sequencer** (below) | First version built; needs hardware test |
-| 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Needs the C4 surface |
+| 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Built; needs hardware test |
 | 4-5 | Free | - |
 
 - [x] Scene 1/2/3 select the mode; lit Scene LED; always Tracking at startup (done)
@@ -160,13 +160,24 @@ C4* second surface drives the 8 Device Control knobs, so plug-in control works a
 Pan/Sends on the top knobs (one Mackie surface has only one row of 8 V-pots). The C4
 follows the selected track/bus; Master toggles Tracks/Buses for bus FX.
 
-- [ ] C4 surface per the plan: two loopMIDI cables (`C4_OUT_PORT` / `C4_IN_PORT`), answer
-      the C4 handshake, set split/assignment at connect, `c4` module, Device knobs -> C4
-      row 1 with rings on the current bank's channel
-- [ ] Utility row in Mixing: < / > = parameter page (Shift = +/-1), Clip/Track = next
-      plug-in (Shift = previous), Device On/Off = bypass if a command can be bound
-- [ ] Capture C4 LCD text (parameter names/values) for the HUD
-- [ ] Setup guide + GENERAL.md for the second surface
+- [x] C4 surface per the plan: two loopMIDI cables (`C4_OUT_PORT` / `C4_IN_PORT`), answer
+      the C4 handshake, set split/assignment from its LEDs at connect, `c4` module, Device
+      knobs -> C4 row 1 in every mode (`DEVICE_KNOB_TARGET`), rings on the current bank's
+      channel (built; **needs hardware test**)
+- [x] Utility row in Mixing: < / > = parameter page (Shift = +/-1), Clip/Track = next
+      plug-in (Shift = previous); past the last plug-in wraps to the first (built)
+- [x] Track Selection and Master reset the C4 to the first plug-in and page
+      (`C4_RESET_ON_SELECT`, M1 + Slot Down / Bank Left) (built)
+- [x] C4 LCD text in the HUD: plug-in line; parameter names/values row when expanded (built)
+- [x] Setup guide + GENERAL.md for the second surface (done)
+- [x] Plug-ins whose first parameter is their on/off switch (*Enable* / *Bypass*): the
+      Device knobs skip it, Device On/Off (59) in Mixing presses it from any page (built)
+- [x] HUD: remembers its dragged position (right edge anchored); Expanded grows to the left;
+      off-screen spots fall back to `HUD_POSITION`; `--reset-hud-position` (built)
+- [x] C4 Split cannot be pressed (note 0 is dropped by Cakewalk): unsplit C4, the app pages
+      the 8 knobs over all 32 bound parameters (built)
+- [ ] Hardware questions from the plan: does Cakewalk recreate the C4 on project switch
+      (Q2)? Is the knob speed right (`C4_KNOB_STEP_LIMIT`)?
 - [x] Device knob baselines per APC40 bank; Device ring feedback on the current bank's
       channel (done)
 - [x] Send A/B/C select sends 1/2/3 without flipping the knob layout (done, verified)
@@ -225,7 +236,7 @@ Ordered roughly by value-to-effort:
 
 - [x] **Track level meters** - MCU channel-pressure meters render as a 5-segment bar per
       track on the clip grid, with a latched clip indicator on Clip Stop (done; `METERS`).
-- [ ] **Second surface: Mackie Control C4** - now the Mixing mode plan (above).
+- [x] **Second surface: Mackie Control C4** - built as plug-in control (Mixing mode above).
 - [x] **Send-level control with rings** - Send A/B/C buttons plus the Track Control knobs
       set send 1/2/3 levels, with the rings showing the send amount (done).
 - [ ] **Session/bank overview on the grid** - use the 8x5 grid to show which bank of tracks

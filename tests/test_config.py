@@ -300,3 +300,26 @@ def test_sequencer_editor_settings(tmp_path, monkeypatch):
     assert cfg.seq_editor is False
     assert cfg.seq_editor_port == 50001
     assert cfg.seq_dir == tmp_path / "my patterns"  # relative to the .env folder
+
+
+def test_c4_keys_default_and_override(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    cfg = config.load_config(env_path=tmp_path / "missing.env")
+    assert (cfg.c4_out_port, cfg.c4_in_port) == ("C4-IN", "C4-OUT")
+    assert cfg.c4 and cfg.c4_reset_on_select and cfg.c4_knob_step_limit == 3
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("C4=off\nC4_KNOB_STEP_LIMIT=99\nC4_RESET_ON_SELECT=no\nC4_OUT_PORT=X\n", encoding="utf-8")
+    cfg = config.load_config(env_path=env_file)
+    assert not cfg.c4 and not cfg.c4_reset_on_select
+    assert cfg.c4_knob_step_limit == 15  # the C4's top speed
+    assert cfg.c4_out_port == "X"
+
+
+def test_hud_margin_default_and_override(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    assert config.load_config(env_path=tmp_path / "missing.env").hud_margin == (50, 12)
+    env_file = tmp_path / ".env"
+    for text, expected in (("80,0", (80, 0)), ("30", (30, 30)), ("junk", (50, 12))):
+        env_file.write_text(f"HUD_MARGIN={text}\n", encoding="utf-8")
+        assert config.load_config(env_path=env_file).hud_margin == expected

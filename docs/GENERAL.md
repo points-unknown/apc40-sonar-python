@@ -46,6 +46,7 @@ APC40 hardware <--rtmidi--> engine <--rtmidi--> APC40-IN  --> Cakewalk (Mackie C
 | `config` | Loads settings from `.env` / environment; no port names are hard-coded |
 | `apc40` | APC40 constants, message builders, the Type 0 introduction SysEx, and the cached/forced LED+ring renderer |
 | `mcu` | Mackie Control encoders (real Note On/Off, 14-bit faders, relative V-pot deltas, packed ring bytes) and decoders |
+| `c4` | Mackie Control **C4** protocol (the second surface for plug-in control): handshake, button and V-pot encoders, LCD decoding and the `C4Display` (parameter names, values, track/plug-in banner) |
 | `engine` | State machine and translation: faders, strip buttons, transport, clip grid, knob modes, feedback rendering, level meters, flashes |
 | `sequencer` | Step sequencer pattern and clock-driven player: MIDI Clock / Start / Stop / Continue / Song Position in, notes out. Hardware-free |
 | `midi_file` | Pattern to a Standard MIDI File (format 1, one track, 480 PPQ) repeated over N bars, and MIDI file notes back to a pattern |
@@ -93,15 +94,21 @@ Port names and options live in `.env` at the repository root (copy
 | `SEQ_EDITOR` | `on` | Open the sequencer editor window while in the Step Sequencer |
 | `SEQ_EDITOR_PORT` | `47041` | UDP port for state to the editor; its commands come back on this + 1 |
 | `SEQ_DISPLAY_LEAD_MS` | `40` | Draw the sequencer playhead this far ahead of the clock (0-500); the editor's *Playhead lead* overrides it via `SEQ_DIR/settings.json` |
+| `C4_OUT_PORT` | `C4-IN` | Plug-in control, app to Cakewalk (the C4 surface's In Port; optional) |
+| `C4_IN_PORT` | `C4-OUT` | Plug-in control, Cakewalk to app (the C4 surface's Out Port; optional) |
+| `C4` | `on` | Use the C4 surface when its cables exist (`off` = Device knobs do nothing) |
+| `C4_KNOB_STEP_LIMIT` | `3` | Max C4 V-pot speed per Device knob event (1-15; Cakewalk moves 1, 4, 7 ... steps for speed 1, 2, 3 ...) |
+| `C4_RESET_ON_SELECT` | `on` | Track Selection / Master jump the C4 to the first plug-in and first parameter page |
 | `SEQ_DIR` | `patterns` | Autosaved pattern (`current.json`), `.mid` exports and the editor's window position; relative to the `.env` folder |
 | `HUD` | `on` | Launch the on-screen HUD (`--hud` / `--no-hud` override) |
 | `HUD_PORT` | `47040` | UDP port on 127.0.0.1 between the app and the HUD |
 | `HUD_POSITION` | `top-right` | `top-left` / `top-right` / `bottom-left` / `bottom-right`, or `x,y` on the monitor |
 | `HUD_MONITOR` | `0` | Monitor index for placement (0 = primary) |
+| `HUD_MARGIN` | `50,12` | Gap from the `HUD_POSITION` corner in pixels, `x,y` (one number = both); a dragged position overrides it |
 | `HUD_OPACITY` | `0.85` | Window alpha, 0.2-1.0 |
 | `HUD_TOPMOST` | `on` | Keep the HUD above other windows |
 | `HUD_CLICK_THROUGH` | `off` | Mouse passes through the HUD (it can then only be moved via `HUD_POSITION`) |
-| `HUD_LAYOUT` | `compact` | `compact` (mode, transport, badges, toasts) or `expanded` (adds the 8 strips) |
+| `HUD_LAYOUT` | `compact` | `compact` (mode, transport, badges, toasts, plug-in line) or `expanded` (adds the Device knob parameters and the 8 strips, to the left) |
 | `HUD_TOAST_MS` | `1200` | How long an action toast stays visible |
 | `HUD_LCD` | `on` | Receive Cakewalk's LCD SysEx on the MCU input (track names, values, messages) |
 
@@ -119,6 +126,7 @@ Process-environment values override the file, so a one-off run can use
 | `uv run apc40sonar --no-show` | Skip the lightshow |
 | `uv run apc40sonar --monitor` | Also print incoming and outgoing MIDI (`apc:`/`mcu:` in, `apc>`/`mcu>` out; `clk:` = Start/Stop/Continue/Song Position from the clock cable, clocks themselves are not printed; `seq>` = sequencer notes out) |
 | `uv run apc40sonar --no-hud` | Run without the on-screen HUD (`--hud` overrides `HUD=off`) |
+| `uv run apc40sonar --reset-hud-position` | Forget where the HUD was dragged; it opens at `HUD_POSITION` |
 | `uv run python -m apc40sonar.hud` | Start a HUD by hand and attach it to a running app |
 | `uv run apc40sonar --env PATH` | Use an explicit `.env` file |
 
@@ -216,10 +224,10 @@ left over from an older build that re-pressed the assignment), restart Cakewalk.
 The Scene buttons select the operating mode (`Engine.mode`, always `tracking` at start);
 the mode's Scene LED is lit and re-sent on every Scene release (the APC40 may blank it
 locally). Only utility-row buttons 58-61 depend on the mode: in **Tracking** they are
-editing and navigation, in **Mixing** they are reserved for C4 plug-in control and do
-nothing yet. 62-65, Nudge and everything else work the same in all modes. The **Step
-Sequencer** (Scene 2) also takes over the grid, Clip Stop row and Bank Select arrows; see
-*Step sequencer*.
+editing and navigation, in **Mixing** they choose the plug-in and parameter page on the
+C4 surface (see *Plug-in knobs (C4)*), in the **Step Sequencer** they do nothing. 62-65,
+Nudge and everything else work the same in all modes. The **Step Sequencer** (Scene 2) also
+takes over the grid, Clip Stop row and Bank Select arrows; see *Step sequencer*.
 
 Tracking uses Cakewalk's own Mackie buttons (Cakewalk mode numbers):
 
@@ -457,6 +465,89 @@ turns it off and sends Note Off on the next. The engine treats **both edges as a
 of their one-shot action (undo, marker, ...) and forces the LED back off, so they stay
 dark and act on every press. The other four (62-65) are momentary.
 
+### Plug-in knobs (C4)
+
+One Mackie surface has a single row of 8 V-pots, and the Track Control knobs already use
+it for Pan/Sends. The Device Control knobs therefore drive a **second Cakewalk surface,
+*Mackie Control C4*** (4 rows of 8 V-pots), on its own loopMIDI pair (`C4_OUT_PORT` /
+`C4_IN_PORT`). The app sets the C4 up so its 32 V-pots are **parameters 1-32 of the
+selected strip's current plug-in**; the 8 Device knobs are a window onto them that the app
+pages itself. Research and Cakewalk source citations:
+[`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md).
+
+- **Handshake.** The C4 has no *Disable handshake* option: Cakewalk ignores all C4 input
+  until it gets a serial number. At startup the app sends a Wake-up
+  (`F0 00 00 66 17 01 F7`, Cakewalk forgets any old serial) and the serial reply
+  (`F0 00 00 66 17 1B <7 bytes> F7`), and it answers every later query
+  (`F0 00 00 66 17 1A 00 F7`). Cakewalk only queries with a project loaded. The C4 input
+  is opened with SysEx enabled.
+- **No split.** The C4's Split button is note 0, and Cakewalk drops every note-0 message
+  (as it does MCU Rec 1, see *Known limitations*); confirmed on hardware 2026-10-04: four
+  Split presses, no LED change. So the C4 stays unsplit, and in channel-strip mode
+  Cakewalk binds all 4 rows: V-pot *n* (row *n* // 8, column *n* % 8) = parameter
+  offset + *n* (`MackieControlC4Reconfigure.cpp`). Cakewalk's own paging clamps at
+  *parameters - 32*, so it cannot page plug-ins with 32 or fewer parameters at all.
+- **Setup** (`Engine.c4_state`: `off` -> `waiting` -> `ready`). After the serial Cakewalk
+  sends a full refresh, including the C4's LEDs. Cakewalk does not save the C4's
+  assignment, and its buttons toggle, so the engine decides every press from the LEDs and
+  waits for the LEDs to confirm before pressing more: leave Track / Function mode,
+  channel-strip mode on (Cakewalk's default). Then the idempotent macro *hold Track, push
+  V-pot row 2 / column 4, release Track* sets the assignment to **Plugin**. Unconfirmed
+  presses are retried up to 4 times, then setup continues anyway (logged with the LED
+  state). Any new serial query restarts setup.
+- **Target.** The C4 follows the main surface's selected strip and Tracks/Buses choice
+  (shared state in Cakewalk), so Track Selection (MCU Select) and Master retarget it. The
+  plug-in slot and parameter page are **not** per track in Cakewalk, so after a Track
+  Selection or Master press (`C4_RESET_ON_SELECT`) the engine sends the C4's Shift (= M1) +
+  Slot Down + Bank Left = first plug-in, offset 0, `C4_RESET_DELAY_FRAMES` (3 frames)
+  later so Cakewalk has taken the select first. Slot Down also makes Cakewalk write a
+  banner (`Track 3: "Vox", Plugin 1: "Sonitus EQ"`) over the first LCD line for about a
+  second; the engine logs it and keeps the track and plug-in name for the HUD's plug-in
+  line (no toast: it would repeat that line).
+- **Knobs.** In every mode (`DEVICE_KNOB_TARGET`), once the C4 is `ready`, Device knob *k*
+  (0-7) turns V-pot *window* + *k*: `B0 <vpot> v`, speed = the step count (capped at
+  `C4_KNOB_STEP_LIMIT`), bit 6 = counter-clockwise. A held Step Sequencer pad still takes
+  the knobs for velocity. Unmapped plug-in parameters move 0.5 % per Cakewalk step; speed
+  *v* moves `(v-1)*3+1` steps. The noise gate and modular difference of *Knob smoothing*
+  apply. Readings are collected per 20 ms frame and sent at its end: a frame with 3 or
+  more knobs of one bank is a Track Selection dump (the APC40 also sends one when the
+  selected track is pressed again, with values the ring writes re-referenced), so it and
+  the next 2 frames only set baselines and never move a parameter.
+- **Rings.** C4 ring CCs `0x20-0x3F` (all 32 V-pots) are cached; the window's 8 are drawn
+  on the Device rings of the **current bank's** channel, all 8 again whenever the window
+  moves; ring byte 0 (no parameter) turns the ring off. After a
+  bank switch they are redrawn on the new channel once the knob dump is over; the dump
+  itself only sets knob baselines (the bank's stored baseline is dropped on a switch).
+  Rings are not drawn while the C4 is in its Track or Function mode, or while a sequencer
+  pad is held (the ring shows the velocity, and the C4 rings return on release).
+- **Mixing utility row.** Clip/Track = Slot Up (next plug-in), Shift = Slot Down, each
+  followed by M1 + Bank Left (offset 0) and the window back to the first parameters.
+  Cakewalk's slot limit is 99, not the track's plug-in count: when a Slot Up banner says
+  `--None--`, the engine resets to the first plug-in (wrap). < / > move the window by 8,
+  Shift by 1, between V-pot 0 and 24, and only where the LCD shows parameters (`No more
+  parameters` / `First parameters`). Past V-pot 31 (when the 32nd parameter exists) they
+  press Bank / Param Right on the C4, moving Cakewalk's offset; going back below the window
+  start presses Bank / Param Left. Those presses are remembered (`_c4_page_moves`) and the
+  toast shows parameter numbers including them.
+- **On/off switch.** When parameter 1 (V-pot 0, offset 0) is the plug-in's switch (label
+  *Enable*, *Bypass*, *On*, *Off*, *Power*, *Active*, or value On/Off: `C4_SWITCH_LABELS`),
+  the first window starts at V-pot 1, so all 8 knobs are real controls; decided from the
+  LCD on every write (rings redrawn when it changes). Device On/Off in Mixing pushes V-pot
+  0 (`0x20`; Cakewalk toggles a switch on a push), whatever the window. Only if Cakewalk's
+  offset was moved (over 32 parameters) does it first go to offset 0 (M1 + Bank Left), wait
+  for Cakewalk to rebind and its LCD to go quiet, push, then replay the remembered offset
+  presses (Cakewalk's clamping repeats exactly); knob turns and page buttons are ignored
+  meanwhile.
+- **Safety.** The app only ever sends C4 notes in `c4.SWITCH_WHITELIST`. Lock, Track
+  Left/Right and the C4's Option/Control/Alt would change state the main surface shares
+  (selection, modifiers) and are never sent. The C4's Shift is M1, also shared, but it is
+  only held for the length of one reset burst; in Plugin assignment it shifts no
+  parameters (`MackieControlC4Rx.cpp`, `OnSwitchModifier`).
+- **LCD.** Each C4 row has a 2 x 56 character LCD (`F0 00 00 66 17 3r <offset> <text> F7`,
+  sent as changed spans); all four are kept. Each row's top line holds its 8 parameter
+  names (row 1's is covered by the banner for a second after a plug-in change),
+  the bottom line their values. `c4.C4Display` patches the buffer and feeds the HUD.
+
 ### Device Control banks
 
 The APC40 keeps nine Device Control banks (Tracks 1-8 and Master), chosen by the Track
@@ -472,7 +563,7 @@ bank** from the channel of the latest Device knob or utility-row message, writes
 ring feedback to that bank's channel, and keeps a separate knob baseline per bank, so the
 position dump the APC40 sends on a bank switch matches that bank's last values instead of
 reading as knob movement. The startup baseline centers the Device rings on all nine
-banks.
+banks. With the C4 surface the dump only sets baselines (see *Plug-in knobs (C4)*).
 
 ### Track Selection in Generic Mode
 
@@ -526,12 +617,25 @@ Design notes: [`plans/hud-concept.md`](../plans/hud-concept.md).
   `SHIFT` / `SHIFT 1x` / `SHIFT LOCK`), a toast for actions with no LED feedback (`Undo`,
   `Next marker`, `Loop <- selection`, `Auto-punch toggled`, `Bank >`, `Send B`, Cakewalk's
   `Track 12: "Vocals"` messages ...), and a status line (`no link`, `Cakewalk idle`,
-  `Strip layout!` when the assignment dot shows Cakewalk flipped the knobs).
-- **Expanded** adds the 8 strips: LCD name (a V-pot value peek briefly replaces it,
-  in white), lower LCD line (param label or value, per Cakewalk's Name/Value state),
-  R/S/M dots, a level meter with clip marker, and the selected strip highlighted.
-- Drag with the left mouse button; right-click for layout, opacity and Quit. The window
-  never takes keyboard focus from Cakewalk.
+  `Strip layout!` when the assignment dot shows Cakewalk flipped the knobs, `no Cakewalk
+  feedback port` / `no Cakewalk control port` when a cable is missing). With the C4
+  surface, a pink plug-in line names what the Device knobs control
+  (`FX 2: Sonitus Delay  (Track 3: "Vox")`).
+- **Expanded** adds, to the **left** of the compact HUD, the 8 Device knob parameters
+  (names and values of the knob window, from the C4 LCDs) when the C4 is ready, above the
+  8 strips: LCD name (a V-pot value peek briefly replaces it, in white), lower LCD line
+  (param label or value, per Cakewalk's Name/Value state), R/S/M dots, a level meter with
+  clip marker, and the selected strip highlighted.
+- Text has fixed widths (`hud_view.*_CHARS`) and long text is cut with an ellipsis, so the
+  window never changes size when a toast or name changes.
+- Default spot: the `HUD_POSITION` corner, `HUD_MARGIN` (x, y) pixels in.
+- Drag with the left mouse button; right-click for layout, opacity, Reset position and
+  Quit. The window never takes keyboard focus from Cakewalk. A dragged position is kept as
+  the distance from the `HUD_POSITION` corner (so a right-anchored HUD grows to the left)
+  and saved in `.hud-position.json` next to `.env` (gitignored); it applies while
+  `HUD_POSITION` and `HUD_MONITOR` stay the same. If that spot is not on any connected
+  monitor (at least 40 x 20 px of it, `hud_view.on_screen`), the HUD opens at
+  `HUD_POSITION` instead; `--reset-hud-position` deletes the file.
 
 How it works: the engine keeps a pure `HudSnapshot` (`Engine.hud_snapshot()`); the run
 loop sends it as one UDP JSON datagram to 127.0.0.1 when it changed, at most every
@@ -587,6 +691,9 @@ single bad event cannot stall the loop.
 | LEDs flicker continuously | Feedback loop | Ensure only this app routes back to the APC40; never pass MCU feedback straight through |
 | Controls do nothing but LEDs work | Surface not added, or wrong In/Out port | Re-add Mackie Control with In `APC40-IN`, Out `APC40-OUT` |
 | Knob feels too coarse or too slow | Step limit / noise gate | Tune `KNOB_STEP_LIMIT` (1-2 for finer) and `KNOB_NOISE_THRESHOLD` |
+| Device knobs do nothing; HUD says `connecting to Cakewalk's C4 surface...` | No *Mackie Control C4* surface in Cakewalk, wrong ports, or no project loaded (Cakewalk only talks to the C4 with a project open) | Add the C4 surface (setup guide, *Plug-in knobs*), restart Cakewalk after changing MIDI devices, load a project |
+| Device knobs do nothing; no plug-in line in the HUD | The `C4-IN` / `C4-OUT` cables are missing, or `C4=off` | Create the cables in loopMIDI (`--list-ports` shows them) |
+| The knobs start on a ProChannel module instead of the first FX-rack plug-in | Cakewalk lists the ProChannel modules as the first plug-in slots | Press Clip/Track in Mixing to step past them, or check *Exclude filters from plug-ins* on the main Mackie Control page (not tested) |
 | Everything stops responding; loopMIDI shows a cable as `[muted]` | loopMIDI's flood protection muted it (too many messages) | Restart loopMIDI, then Cakewalk and the app. The playhead flood that caused this is capped (see *Playhead steps*) |
 | Playhead moves too far / too little | Step sizes | Tune `CUE_STEP`, `SHIFT_CUE_STEP`, `NUDGE_STEP` |
 

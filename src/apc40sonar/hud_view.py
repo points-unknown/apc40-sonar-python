@@ -38,6 +38,13 @@ REC_COLOR, SOLO_COLOR, MUTE_COLOR = "#f87171", "#facc15", "#60a5fa"
 METER_GREEN, METER_YELLOW, METER_RED = "#4ade80", "#facc15", "#f87171"
 METER_MAX = 13
 
+# Fixed text widths (characters): the HUD keeps one size instead of jumping
+# wider for a long toast or name; longer text is cut with an ellipsis.
+BANK_CHARS = 22  # "Sequencer | Trk ~17-24"
+SELECTION_CHARS = 15
+TOAST_CHARS = 24
+PLUGIN_CHARS = 56
+
 LINK_TIMEOUT = 3.0  # seconds without a datagram before the HUD shows "no link"
 MARGIN = 12
 
@@ -72,6 +79,8 @@ class HudView:
     strips: tuple[StripView, ...]
     show_strips: bool
     shift_text: str = "SHIFT"  # SHIFT / SHIFT 1x (one-shot) / SHIFT LOCK
+    plugin_text: str = ""  # the plug-in on the Device knobs; "" without a C4
+    params: tuple[tuple[str, str], ...] = ()  # (name, value) of the 8 Device knobs
 
 
 def mode_label(snapshot: HudSnapshot) -> tuple[str, str]:
@@ -120,6 +129,28 @@ def status_label(snapshot: HudSnapshot | None, info: dict, linked: bool) -> tupl
     if not snapshot.cakewalk_active:
         return "Cakewalk idle", DIM
     return "", DIM
+
+
+def fit(text: str, chars: int) -> str:
+    """*text* cut to *chars* characters, ending in an ellipsis when cut."""
+
+    return text if len(text) <= chars else text[: chars - 1].rstrip() + "…"
+
+
+def plugin_label(snapshot: HudSnapshot) -> str:
+    """'FX 2: Sonitus Delay  (Track 3: "Vox")'; '' when there is no C4 surface."""
+
+    if snapshot.c4_state == "waiting":
+        return "Plug-in knobs: connecting to Cakewalk's C4 surface..."
+    if snapshot.c4_state != "ready":
+        return ""
+    if snapshot.c4_slot is None:
+        return "Plug-in knobs: select a track"
+    plugin = snapshot.c4_plugin if snapshot.c4_plugin is not None else "(empty slot)"
+    text = f"FX {snapshot.c4_slot}: {plugin}"
+    if snapshot.c4_switch:
+        text += f"  [{snapshot.c4_switch}]"
+    return f"{text}  ({snapshot.c4_strip})" if snapshot.c4_strip else text
 
 
 def _at(values: Sequence, index: int, default):
@@ -177,8 +208,8 @@ def build_view(
     return HudView(
         mode_text=mode_text,
         mode_color=mode_color,
-        bank_text=bank_label(snapshot),
-        selection_text=selection_label(snapshot),
+        bank_text=fit(bank_label(snapshot), BANK_CHARS),
+        selection_text=fit(selection_label(snapshot), SELECTION_CHARS),
         transport_text=transport_text,
         transport_color=transport_color,
         badges=badges,
@@ -187,9 +218,11 @@ def build_view(
         assignment_text=f"Assign {snapshot.assignment}" if snapshot.assignment else "",
         status_text=status_text,
         status_color=status_color,
-        toast=toast,
+        toast=fit(toast, TOAST_CHARS),
         strips=strip_views(snapshot),
         show_strips=snapshot.lcd_seen,
+        plugin_text=fit(plugin_label(snapshot), PLUGIN_CHARS),
+        params=tuple(zip(snapshot.c4_labels, snapshot.c4_values)) if snapshot.c4_state == "ready" else (),
     )
 
 
@@ -247,15 +280,61 @@ def place_window(
     position: str,
     area: tuple[int, int, int, int],
     size: tuple[int, int],
-    margin: int = MARGIN,
+    margin: int | tuple[int, int] = MARGIN,
 ) -> tuple[int, int]:
-    """Top-left corner for a window of *size* in the monitor work *area* (l, t, r, b)."""
+    """Top-left corner for a window of *size* in the monitor work *area* (l, t, r, b).
+
+    *margin* is the distance from the corner's two edges, (x, y) or one for
+    both; the window keeps that corner when its size changes.
+    """
 
     left, top, right, bottom = area
     width, height = size
     corner, xy = parse_position(position)
     if corner == "xy" and xy is not None:
         return left + xy[0], top + xy[1]
-    x = left + margin if corner.endswith("left") else right - width - margin
-    y = top + margin if corner.startswith("top") else bottom - height - margin
+    mx, my = (margin, margin) if isinstance(margin, int) else margin
+    x = left + mx if corner.endswith("left") else right - width - mx
+    y = top + my if corner.startswith("top") else bottom - height - my
     return x, y
+
+
+def on_screen(
+    at: tuple[int, int],
+    size: tuple[int, int],
+    areas: Sequence[tuple[int, int, int, int]],
+    grip: tuple[int, int] = (40, 20),
+) -> bool:
+    """True when at least *grip* (w, h) pixels of the window overlap some monitor.
+
+    That is enough to see the HUD and drag it, even when it was dragged a
+    little past an edge (for example up into Cakewalk's title bar); a window
+    placed for a monitor that is gone or moved fails this and goes back to its
+    default spot.
+    """
+
+    x, y = at
+    for left, top, right, bottom in areas:
+        overlap_w = min(x + size[0], right) - max(x, left)
+        overlap_h = min(y + size[1], bottom) - max(y, top)
+        if overlap_w >= grip[0] and overlap_h >= grip[1]:
+            return True
+    return False
+
+
+def corner_margin(
+    position: str,
+    area: tuple[int, int, int, int],
+    size: tuple[int, int],
+    at: tuple[int, int],
+) -> tuple[int, int]:
+    """The *margin* that places a window of *size* at *at* (the inverse of place_window)."""
+
+    left, top, right, bottom = area
+    width, height = size
+    corner, _xy = parse_position(position)
+    if corner == "xy":
+        corner = "top-left"
+    mx = at[0] - left if corner.endswith("left") else right - width - at[0]
+    my = at[1] - top if corner.startswith("top") else bottom - height - at[1]
+    return mx, my

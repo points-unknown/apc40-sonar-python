@@ -73,12 +73,22 @@ their LEDs and always returns to normal navigation.
 | Fit project | MCU | Zoom 100 + M4 + Cursor Right |
 | Cursor keys | MCU | 96-99 |
 
-## Plug-ins (planned: Mixing mode)
+## Plug-ins (Mixing mode and the Device knobs)
 
 The main Mackie surface has one row of 8 V-pots with one assignment, so plug-in control on
 the Device Control knobs uses a **second surface**, Cakewalk's *Mackie Control C4*, which
-keeps its own assignment and follows the selected track or bus. Parameter paging, next
-plug-in and bypass come from the C4. See [`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md).
+keeps its own assignment and follows the selected track or bus.
+
+| Action | Path | C4 button |
+|---|---|---|
+| Plug-in parameter (8 at a time, a window onto the 32 V-pots) | C4 V-pots | CC 0x00-0x1F |
+| Next / previous plug-in | C4 Slot Up / Down | 0x11 / 0x12 |
+| Parameters -/+ 8, -/+ 1 | The app's window; past parameter 32, C4 Bank / Param Left / Right | 0x09 / 0x0A, 0x0B / 0x0C |
+| Plug-in on/off (its *Enable* / *Bypass* parameter) | C4 V-pot 1 push | 0x20 |
+| First plug-in, first page | C4 Shift (M1) + Slot Down, + Bank Left | 0x0D + 0x12, 0x09 |
+
+Details: [`GENERAL.md`](GENERAL.md) (*Plug-in knobs (C4)*) and
+[`plans/c4-surface-plan.md`](../plans/c4-surface-plan.md).
 
 ## Instrument / drum (planned: Step Sequencer)
 

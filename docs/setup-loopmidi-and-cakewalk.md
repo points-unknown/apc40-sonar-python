@@ -197,6 +197,43 @@ pattern into Cakewalk as regular MIDI notes, either record the drum track (turn 
 Input Quantize at 1/16 for exact timing) or click **Export .mid** and drag the file onto
 a track.
 
+### 7. Plug-in knobs (optional)
+
+The eight **Device Control knobs** (bottom right) control 8 parameters of the selected
+track's plug-in. They talk to Cakewalk through a second surface, *Mackie Control C4*, on
+two more cables. Skip this section if you do not want it; the rest of the app works
+without it.
+
+1. **loopMIDI:** add two cables, `C4-IN` (the app to Cakewalk) and `C4-OUT` (Cakewalk to
+   the app). As with the first pair, the names are from Cakewalk's point of view.
+2. **Cakewalk, Edit > Preferences > MIDI > Devices:** tick `C4-IN` under **Inputs** and
+   `C4-OUT` under **Outputs**. Click **Apply**, then **close and reopen Cakewalk** (changing
+   MIDI devices while it runs disconnects the Mackie Control surface until Cakewalk
+   restarts).
+3. **Edit > Preferences > MIDI > Control Surfaces:** click **Add** (+):
+   - Controller/Surface: **Mackie Control C4**
+   - Input Port: **`C4-IN`**
+   - Output Port: **`C4-OUT`**
+   - Click **OK**, then **Apply**. Keep the existing *Mackie Control* entry as it is.
+4. **Optional, main Mackie Control settings page** (*Utilities > Mackie Control*, step 4):
+   Cakewalk lists the **ProChannel** modules (EQ, compressor, Tube, ...) as the first
+   plug-ins, so selecting a track puts the ProChannel under the knobs. That is handy for
+   quick EQ and dynamics. To start on the first FX-rack plug-in instead, tick **Exclude
+   filters from plug-ins** (not tested yet) and re-save your `APC40` preset.
+   The C4 has its own settings page (*Utilities > Mackie Control C4*); leave it as it is.
+   There is no *Disable handshake* option for the C4: the app answers Cakewalk's
+   handshake itself.
+5. Run `uv run apc40sonar --list-ports`: `c4_out` and `c4_in` show `OK`.
+
+Start the app and load a project (Cakewalk only talks to the C4 with a project open). The
+HUD toasts `Plug-in control ready` and shows a pink line such as
+`FX 1: Sonitus EQ  (Track 3: "Vox")`. Press a Track Selection button and turn a Device
+knob: the plug-in's first parameter moves in Cakewalk, and the knob's ring follows. In
+**Mixing** mode (Scene 3), **Clip/Track** steps to the next plug-in, **< / >** page
+through its parameters 8 at a time and **Device On/Off** turns the plug-in on or off (see
+the quick reference, *Device Control knobs* and *Utility row*). Right-click the HUD >
+**Expanded** to see the names and values of the 8 parameters on the knobs.
+
 ## Daily startup
 
 1. **loopMIDI** is running (automatic if Autostart is on).
@@ -244,9 +281,12 @@ does is Cakewalk's *Meters* setting, and you can switch it without opening any d
 | Everything stopped responding; loopMIDI shows `APC40-IN` (or `-OUT`) as `[muted]` | loopMIDI's flood protection muted the cable after a burst of messages | Quit and restart loopMIDI (or remove and re-add the cable), then restart Cakewalk and apc40sonar |
 | **Metronome** (auto-punch) or **Shift + Metronome** does nothing | *F2* / *F1* not assigned in this project's Mackie Control settings | Apply your `APC40` preset, or set them ([step 4](#4-cakewalk-mackie-control-surface-settings-save-as-a-preset)) |
 | MCU data shows up in a MIDI track recording | Track input set to Omni | Set MIDI track inputs to your keyboard instead of *All Inputs / Omni* |
+| Device knobs do nothing; the HUD says `connecting to Cakewalk's C4 surface...` | No *Mackie Control C4* surface, wrong ports, Cakewalk not restarted after enabling `C4-IN`/`C4-OUT`, or no project loaded | Check [step 7](#7-plug-in-knobs-optional), restart Cakewalk, load a project |
+| Device knobs do nothing and the HUD has no pink plug-in line | The `C4-IN` / `C4-OUT` cables are missing (the console says `C4 ports ... unavailable`) or `C4=off` in `.env` | Create the cables in loopMIDI and restart the app |
+| Device knobs start on a ProChannel module, not the FX rack | Cakewalk lists the ProChannel first (normal) | Press Clip/Track in Mixing to step on, or tick *Exclude filters from plug-ins* ([step 7](#7-plug-in-knobs-optional)) |
 
-`uv run apc40sonar --monitor` shows `apc:`/`mcu:` for incoming messages and
-`apc>`/`mcu>` for outgoing ones, so you can tell which side of the link is failing. The
+`uv run apc40sonar --monitor` shows `apc:`/`mcu:`/`c4:` for incoming messages and
+`apc>`/`mcu>`/`c4>` for outgoing ones, so you can tell which side of the link is failing. The
 app also writes a log to `logs/apc40-sonar.log`.
 
 > Don't open `APC40-OUT` in a MIDI monitor such as MIDI-OX while the app runs. A second

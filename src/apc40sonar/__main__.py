@@ -47,6 +47,7 @@ from . import midi_file
 from . import midi_io
 from . import seq_link
 from . import sequencer as sq
+from .hud import POSITION_FILE as HUD_POSITION_FILE
 
 PROG = "apc40sonar"
 POLL_SECONDS = 0.02
@@ -85,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Show the on-screen HUD (default: HUD in .env, on).",
+    )
+    parser.add_argument(
+        "--reset-hud-position",
+        action="store_true",
+        help="Forget where the HUD was dragged; it opens at HUD_POSITION again.",
     )
     parser.add_argument(
         "--env",
@@ -134,7 +140,11 @@ def _report_config(cfg: config_module.Config, ports: midi_io.MidiPorts, stream: 
         status = "OK  " if ok else "FAIL"
         print(f"  [{status}] {label} {name!r} ({', '.join(details)})", file=stream)
 
-    print("Step sequencer ports (optional):", file=stream)
+    print("Step sequencer and plug-in (C4) ports (optional):", file=stream)
+    optional += [
+        ("c4_out  (app->CW)    ", cfg.c4_out_port, ports.outputs, "no plug-in control"),
+        ("c4_in   (CW->app)    ", cfg.c4_in_port, ports.inputs, "no plug-in control"),
+    ]
     for label, name, names, effect in optional:
         try:
             detail = f"index {midi_io.resolve_index(names, name)}"
@@ -232,6 +242,27 @@ def _open_sequencer(cfg: config_module.Config, log: logging.Logger, monitor: boo
 
     clock_in.set_callback(on_clock)
     return seq, seq_out, clock_in
+
+
+def _open_c4(cfg: config_module.Config, log: logging.Logger):
+    """Open the C4 surface cables best-effort. Returns (out, in), or (None, None).
+
+    Both are needed: Cakewalk only enables the C4 after the app answers its
+    serial-number query (SysEx on the input).
+    """
+
+    if not cfg.c4:
+        return None, None
+    try:
+        c4_out = midi_io.open_output(cfg.c4_out_port, cfg.client_name)
+        c4_in = midi_io.open_input(cfg.c4_in_port, cfg.client_name, ignore_sysex=False)
+    except Exception as exc:  # noqa: BLE001 - optional feature
+        log.info("C4 ports %r / %r unavailable: %s", cfg.c4_out_port, cfg.c4_in_port, exc)
+        print(f"note: C4 ports {cfg.c4_out_port!r} / {cfg.c4_in_port!r} unavailable; no plug-in control",
+              file=sys.stderr)
+        return None, None
+    log.info("opened C4 ports %r / %r", cfg.c4_out_port, cfg.c4_in_port)
+    return c4_out, c4_in
 
 
 def _drain(
@@ -489,6 +520,13 @@ def _run(args: argparse.Namespace) -> int:
         if mcu_out is not None:
             mcu_out.send_message(list(message))
 
+    c4_out, c4_in = _open_c4(cfg, log)
+
+    def c4_send(message: Sequence[int]) -> None:
+        if args.monitor:
+            print(f"c4> {list(message)}")
+        c4_out.send_message(list(message))
+
     # Select the operating mode before any other APC40-specific message.
     introduction = apc40.build_introduction(
         mode_id, major=APP_MAJOR, minor=APP_MINOR, bugfix=APP_BUGFIX
@@ -519,6 +557,9 @@ def _run(args: argparse.Namespace) -> int:
         seq_hold_frames=round(1.0 / POLL_SECONDS),
         seq_clock_frames=round(1.5 / POLL_SECONDS),
         seq_display_lead_ms=_load_settings(cfg).get("display_lead_ms", cfg.seq_display_lead_ms),
+        c4_send=c4_send if c4_out is not None else None,
+        c4_knob_step_limit=cfg.c4_knob_step_limit,
+        c4_reset_on_select=cfg.c4_reset_on_select,
     )
 
     hud: _Hud | None = None
@@ -538,6 +579,10 @@ def _run(args: argparse.Namespace) -> int:
             return 0
 
         if hud_on:
+            if args.reset_hud_position:
+                saved = (cfg.env_path.parent if cfg.env_path else Path.cwd()) / HUD_POSITION_FILE
+                saved.unlink(missing_ok=True)
+                log.info("HUD position reset")
             try:
                 hud = _Hud(cfg, args.env, {"mcu_out": mcu_out is not None, "mcu_in": mcu_in is not None})
                 hud.start()
@@ -545,12 +590,16 @@ def _run(args: argparse.Namespace) -> int:
                 log.warning("HUD unavailable: %s", exc)
                 hud = None
 
+        eng.c4_connect()
+
         print("running - press Ctrl+C to stop")
         try:
             while True:
                 _drain(apc_in, eng.on_apc_message, "apc", args.monitor, log)
                 if mcu_in is not None:
                     _drain(mcu_in, eng.on_mcu_message, "mcu", args.monitor, log)
+                if c4_in is not None:
+                    _drain(c4_in, eng.on_c4_message, "c4", args.monitor, log)
                 eng.tick()
                 if hud is not None:
                     try:
@@ -584,7 +633,7 @@ def _run(args: argparse.Namespace) -> int:
             clock_in.cancel_callback()
         if seq is not None:
             seq.all_notes_off()
-        del apc_in, apc_out_handle, mcu_out, mcu_in, seq_out, clock_in
+        del apc_in, apc_out_handle, mcu_out, mcu_in, seq_out, clock_in, c4_out, c4_in
 
 
 def main(argv: Sequence[str] | None = None) -> int:
