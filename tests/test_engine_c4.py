@@ -502,11 +502,19 @@ def test_page_buttons_wait_while_device_on_off_runs():
     assert eng.hud_snapshot().c4_labels[0] == "P2"  # not paged
 
 
-def test_tracking_utility_row_is_unchanged():
+def test_clip_track_steps_plugins_in_tracking_too():
     eng, rec = ready_engine()
     edge(eng, apc.NOTE_UTIL_CLIP_TRACK)
+    assert rec.c4_msgs == c4.click(c4.SLOT_UP) + c4.with_shift([c4.BANK_LEFT])
+    assert rec.mcu_msgs == []
+
+
+def test_other_tracking_utility_buttons_are_unchanged():
+    eng, rec = ready_engine()
+    edge(eng, apc.NOTE_UTIL_DEVICE_ONOFF)
     assert rec.c4_msgs == []
-    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO)
+    assert rec.mcu_msgs == [mcu.button_press(mcu.NOTE_M1), *click(mcu.NOTE_CW_MARKER),
+                            mcu.cakewalk_release(mcu.NOTE_M1)]
 
 
 def test_mixing_buttons_without_a_c4_send_nothing():
@@ -600,3 +608,14 @@ def test_hud_snapshot_reports_the_plugin_and_parameters():
     assert (snap.c4_slot, snap.c4_plugin, snap.c4_strip) == (2, "Sonitus Delay", 'Track 3: "Vox"')
     assert snap.c4_labels[:2] == ("Mix", "Time")
     assert snap.c4_values[:2] == ("50%", "250ms")
+
+
+def test_c4_banner_corrects_the_tracks_buses_guess():
+    eng, rec = ready_engine()  # the app starts assuming tracks
+    eng.on_c4_message(lcd(0, 'Bus 1: "Master", Plugin 1: "ProChannel EQ"'.ljust(56)))
+    assert eng.hud_snapshot().buses
+    knob_dump(eng, 8)  # Master: back to tracks in one press
+    settle(eng)
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_TRACK)
+    eng.on_c4_message(lcd(0, 'Track 2: "Gtr", Plugin 1: "ProChannel EQ"'.ljust(56)))
+    assert not eng.hud_snapshot().buses

@@ -84,6 +84,7 @@ Port names and options live in `.env` at the repository root (copy
 | `SHIFT_CUE_STEP` | `30 tick` | Playhead move per Cue Level detent with Shift held |
 | `NUDGE_STEP` | `1 measure` | Playhead move per Nudge press (and per repeat while held) |
 | `NUDGE_REPEAT_MS` | `150` | Repeat interval while Nudge is held (after a 0.4 s hold) |
+| `LONG_PRESS_MS` | `1000` | Hold time of a long press (200-5000): Clip Stop resets its knob, a lit sequencer pad turns off |
 | `SHIFT_ONESHOT_MS` | `3000` | A tapped (one-shot) Shift expires after this long |
 | `SEQ_OUT_PORT` | `APC40-SEQ` | Step sequencer notes, app to Cakewalk (optional; without it Scene 2 is off) |
 | `CLOCK_IN_PORT` | `APC40-CLOCK` | Cakewalk's MIDI clock to the app (optional; without it the sequencer does not play) |
@@ -146,7 +147,7 @@ Process-environment values override the file, so a one-off run can use
 | Solo (note 49) | Solo notes 8-15 |
 | Activator/Mute (note 50) | Mute notes 16-23 |
 | Track Selection (no note in Generic Mode: detected from the bank's knob dump, see below) | Select notes 24-31 |
-| Clip Stop (note 52) | V-pot push notes 32-39 (Cakewalk resets that strip's knob parameter to its default) |
+| Clip Stop (note 52) | Short press: clears that track's clip indicator (local). Long press (`LONG_PRESS_MS`): V-pot push notes 32-39 (Cakewalk resets that strip's knob parameter to its default) |
 | Play / Stop / Record (91/92/93) | Play 94 / Stop 93 / Record 95 |
 | Nudge - / + (101/100) | Jog CC 60 x `NUDGE_STEP`, repeated by the engine while held (see *Playhead steps*) |
 | Bank Select Left / Right (97/96) | Bank Left 46 / Bank Right 47 (8-track window moves by 8) |
@@ -233,7 +234,8 @@ Tracking uses Cakewalk's own Mackie buttons (Cakewalk mode numbers):
 
 | APC40 | Cakewalk Mackie |
 |---|---|
-| Clip/Track / Shift | Undo 82 / Redo 83 |
+| Stop All Clips / Shift (every mode) | Undo 82 / Redo 83 |
+| Clip/Track / Shift | Next / previous plug-in on the C4 (as in Mixing) |
 | Device On/Off | M1 + Marker 84 (insert marker) |
 | Left / Right arrow | Marker navigation 84 + Rewind 91 / Forward 92 (previous / next marker) |
 | Shift + Left / Right | Select navigation 86 + Rewind / Forward (go to selection from / thru) |
@@ -252,7 +254,10 @@ velocity 0: in marker navigation Cakewalk repeats them until it sees the release
 buttons, following their LEDs. In Generic Mode Master is part of the Track Selection radio
 group: it sends **no note 80**, only the Master bank's knob dump (CC 16-23 on channel 8),
 confirmed with a `--monitor` capture on 2026-09-27. The APC40 lights
-Master itself, so the HUD shows Tracks/Buses instead of the LED.
+Master itself, so the HUD shows Tracks/Buses instead of the LED. Cakewalk keeps the strip
+type when the app restarts but does not resend the main surface's LEDs, so the engine
+also takes it from every C4 banner (`Track ...` = tracks, otherwise buses); the C4 is
+refreshed in full on each app start.
 
 ### Step sequencer
 
@@ -279,7 +284,7 @@ note, and so does app exit.
 page lanes (instead of Bank/cursor keys). Step colors: green normal, amber accent, red
 soft (the nearest band to the velocity). A pad acts at **release**: a tap cycles the step,
 while holding a pad and turning a Device Control knob sets its velocity by the knob's delta
-(the release then does not cycle). Holding a lit pad for 1 s (`seq_hold_frames`)
+(the release then does not cycle). Holding a lit pad for `LONG_PRESS_MS` (1 s, `long_press_frames`)
 turns its step off at that moment, and the release then does nothing; a knob turn during
 the hold cancels this.
 
@@ -397,9 +402,12 @@ is a bottom-up meter for its track, and the Clip Stop LED is that track's clip i
 
 - A real MCU decays its meters locally and the host relies on that, so the engine drops
   one level every `METER_DECAY_MS` (serviced by `tick()`); a new value restarts the timer.
-- The Clip Stop LED turns red on the host overload flag **or** on level 13 (not every host
-  sends the flag) and stays latched until the host clears it or **Stop All Clips** is
-  pressed. Pressing Clip Stop still resets that strip's knob parameter.
+- The Clip Stop LED lights (the engine sends red, but the original APC40's Clip Stop LEDs
+  are green only) on the host overload flag **or** on level 13 (not every host
+  sends the flag) and stays latched until the host clears it or its **Clip Stop** button is
+  short-pressed. Stop, Undo and Stop All Clips leave it alone. A long press (`LONG_PRESS_MS`)
+  resets that strip's knob parameter instead; it fires when the hold time is reached, and
+  the release after it does nothing (`Engine._clip_stop`, `_clip_stop_holds`).
 - While meters are on the grid pads do not light when pressed (the grid is a display).
   With `METERS=off` the pads go back to momentary green and nothing meter-related is drawn.
 - LED writes are de-duplicated, so a steady signal costs no traffic; only segment changes
@@ -445,7 +453,8 @@ Shift were not active.
 | Shift + Detail View (62) | Toggle Cakewalk's Mackie Control meters (see above) |
 | Shift + Bank Select Left / Right | Move the strip window by one track (MCU Channel Left/Right) |
 | Shift + Metronome (65) | MCU F1 (54): the preset assigns it to Cakewalk's *Metronome During Record* |
-| Shift + Clip/Track (58) | Redo (Tracking) |
+| Shift + Stop All Clips | Redo (every mode) |
+| Shift + Clip/Track (58) | Previous plug-in (Tracking, Mixing) |
 | Shift + Left / Right arrow (60/61) | Go to selection start / end (Tracking) |
 | Shift + Nudge - / + | Selection start / end = playhead |
 | Shift + Cue Level | Fine playhead step (`SHIFT_CUE_STEP`; held or locked Shift only) |
@@ -601,8 +610,9 @@ Before any other APC40-specific message the app sends the Type 0 introduction
 operating mode. The lightshow then lights every host-addressable control and blacks out,
 and `render_baseline()` leaves the surface ready: Tracking mode with Scene 1 lit, Pan
 knob mode, both ring banks centered. Stop All Clips (note 81) has no host-addressable LED;
-its press stops the transport, clears the clip latches, and is acknowledged by flashing
-the Stop LED and the eight Clip Stop LEDs.
+it is Undo (Shift = Redo) in every mode, acknowledged by a HUD toast. Undo used to be on
+Clip/Track, where it was too easy to hit by accident. A short Clip Stop press clears its
+track's clip latch.
 
 ### On-screen HUD
 
@@ -693,7 +703,8 @@ single bad event cannot stall the loop.
 | Knob feels too coarse or too slow | Step limit / noise gate | Tune `KNOB_STEP_LIMIT` (1-2 for finer) and `KNOB_NOISE_THRESHOLD` |
 | Device knobs do nothing; HUD says `connecting to Cakewalk's C4 surface...` | No *Mackie Control C4* surface in Cakewalk, wrong ports, or no project loaded (Cakewalk only talks to the C4 with a project open) | Add the C4 surface (setup guide, *Plug-in knobs*), restart Cakewalk after changing MIDI devices, load a project |
 | Device knobs do nothing; no plug-in line in the HUD | The `C4-IN` / `C4-OUT` cables are missing, or `C4=off` | Create the cables in loopMIDI (`--list-ports` shows them) |
-| The knobs start on a ProChannel module instead of the first FX-rack plug-in | Cakewalk lists the ProChannel modules as the first plug-in slots | Press Clip/Track in Mixing to step past them, or check *Exclude filters from plug-ins* on the main Mackie Control page (not tested) |
+| The knobs start on a ProChannel module instead of the first FX-rack plug-in | Cakewalk lists the ProChannel modules as the first plug-in slots (normal) | Press Clip/Track in Mixing to step past them |
+| The plug-in list starts with *ProChannel EQ*, *Track Compressor*, and the EQ appears twice | *Exclude filters from plug-ins* is off: Cakewalk prepends its two "filters" (Track/Bus EQ and Compressor, for a real Mackie's EQ / Dynamics buttons; `GetPluginProperties` in `MackieControlBaseBinder.cpp`) to the plug-in list, which already holds the ProChannel modules | Tick it on the main Mackie Control page (tested 2026-10-04: the reverb moved from FX 7 to FX 5) |
 | Everything stops responding; loopMIDI shows a cable as `[muted]` | loopMIDI's flood protection muted it (too many messages) | Restart loopMIDI, then Cakewalk and the app. The playhead flood that caused this is capped (see *Playhead steps*) |
 | Playhead moves too far / too little | Step sizes | Tune `CUE_STEP`, `SHIFT_CUE_STEP`, `NUDGE_STEP` |
 

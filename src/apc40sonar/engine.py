@@ -85,10 +85,9 @@ APC_TRACK_TOGGLES = {
 APC_TRACK_SELECT = apc.NOTE_TRACK_SELECT
 APC_TRACK_SELECT_NOTE = mcu.NOTE_SELECT1
 
-# Momentary per-track buttons: act on the press edge only.
-APC_TRACK_MOMENTARY = {
-    apc.NOTE_CLIP_STOP: mcu.NOTE_VPOT_PUSH1,
-}
+# Clip Stop: a short press clears that track's clip indicator; a long press
+# (long_press_frames) resets its Track Control knob with the V-pot push.
+CLIP_STOP_RESET = mcu.NOTE_VPOT_PUSH1
 
 # Track level meters on the clip grid. Each track's column is a bottom-up bar:
 # row 5 is the lowest segment and row 1 the highest. Entries are
@@ -101,7 +100,7 @@ METER_SEGMENTS = (
     (2, 9, apc.CLIP_YELLOW),
     (1, 12, apc.CLIP_RED),
 )
-METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track's clip is latched
+METER_CLIP_COLOR = apc.CLIP_RED  # Clip Stop LED while a track is clipped (the original APC40 shows any color as green)
 
 # MCU buttons Cakewalk acts on at *release*: they need a release it can see.
 # Loop toggles on release; the cursor keys auto-repeat (0.4 s, then every
@@ -322,7 +321,7 @@ class Engine:
         shift_double_frames: int = 20,
         sequencer: sq.Sequencer | None = None,
         seq_indicator_frames: int = 25,
-        seq_hold_frames: int = 50,
+        long_press_frames: int = 50,
         seq_clock_frames: int = 75,
         seq_display_lead_ms: int = 40,
         c4_send: Callable[[Sequence[int]], None] | None = None,
@@ -364,6 +363,7 @@ class Engine:
         self.nudge_hold_frames = max(1, nudge_hold_frames)
         self.nudge_repeat_frames = max(1, nudge_repeat_frames)
         self._nudge: dict | None = None  # the held Nudge button, if any
+        self._clip_stop_held: dict[int, int | None] = {}  # track -> press frame; None once it acted
         self._jog_budget = JOG_BUDGET_PER_FRAME
         # HUD: Cakewalk counts as active while it sent feedback this recently,
         # and an LCD name change this soon after a V-pot turn is a value peek.
@@ -454,7 +454,9 @@ class Engine:
         # the playhead, or briefly the page number after a page change.
         self.sequencer = sequencer
         self.seq_indicator_frames = max(1, seq_indicator_frames)
-        self.seq_hold_frames = max(1, seq_hold_frames)  # hold a lit pad this long = off
+        # A press held this long is a long press: a lit sequencer pad turns
+        # off, a Clip Stop button resets its knob.
+        self.long_press_frames = max(1, long_press_frames)
         # Playing this long without a clock Start means Cakewalk sends no clock.
         self.seq_clock_frames = max(1, seq_clock_frames)
         self._seq_unclocked_since: int | None = None
@@ -656,11 +658,8 @@ class Engine:
                     self._select_strip(channel)
                 return
 
-            momentary = APC_TRACK_MOMENTARY.get(note)
-            if momentary is not None:
-                if pressed:
-                    self._mcu_click(momentary + channel)
-                return
+            if note == apc.NOTE_CLIP_STOP:
+                self._clip_stop(channel, pressed)
             return
 
         # The Device Control button row (58-65: Clip/Track ... Detail View,
@@ -686,6 +685,14 @@ class Engine:
             return
         if note in apc.SCENE_NOTES and not pressed:
             self._render_mode_leds()
+            return
+
+        # Stop All Clips = Undo, Shift = Redo, in every mode: away from the
+        # utility row, where Undo was too easy to hit by accident.
+        if note == apc.NOTE_STOP_ALL_CLIPS:
+            if pressed:
+                self._mcu_click(mcu.NOTE_CW_REDO if shifted else mcu.NOTE_CW_UNDO)
+                self.toast("Redo" if shifted else "Undo")
             return
 
         # Mode-dependent utility row (Tracking: editing, markers, selection).
@@ -742,12 +749,7 @@ class Engine:
             return
 
         # Local-only actions below (press edge only).
-        if note == apc.NOTE_STOP_ALL_CLIPS:
-            self._mcu_click(mcu.NOTE_STOP)
-            self.clear_meter_clips()
-            self.flash_stop_all()
-            self.toast("Stop all")
-        elif note == apc.NOTE_PAN:
+        if note == apc.NOTE_PAN:
             self.set_knob_mode("pan")
         elif note == apc.NOTE_SEND_A:
             self.set_knob_mode("send_a")
@@ -975,14 +977,14 @@ class Engine:
 
         if note in APC_LATCHING_UTILITY:
             self.apc.global_note(note, apc.LED_OFF, force=True)  # undo the local latch
+        if note == apc.NOTE_UTIL_CLIP_TRACK and self.mode in ("tracking", "mixing"):
+            self._on_c4_button(note, shifted)  # next / previous plug-in
+            return True
         if note in TRACKING_ONLY and self.mode != "tracking":
             if self.mode == "mixing":
                 self._on_c4_button(note, shifted)
             return True
-        if note == apc.NOTE_UTIL_CLIP_TRACK:
-            self._mcu_click(mcu.NOTE_CW_REDO if shifted else mcu.NOTE_CW_UNDO)
-            self.toast("Redo" if shifted else "Undo")
-        elif note == apc.NOTE_UTIL_DEVICE_ONOFF:
+        if note == apc.NOTE_UTIL_DEVICE_ONOFF:
             if not shifted:
                 self._with_modifier(mcu.NOTE_M1, mcu.NOTE_CW_MARKER)
                 self.toast("Marker inserted")
@@ -1046,6 +1048,31 @@ class Engine:
             self._cw_buses = True
             self.toast("Buses")
         self._c4_schedule_reset()  # the C4 follows: plug-ins of a bus or a track
+
+    def _clip_stop(self, track: int, pressed: bool) -> None:
+        """Clip Stop: short press = clear the clip indicator; long press = reset the knob.
+
+        The long press acts as soon as the hold time is reached (see
+        _clip_stop_holds), so the release after it does nothing more.
+        """
+
+        if pressed:
+            self._clip_stop_held[track] = self._frame
+            return
+        if self._clip_stop_held.pop(track, None) is None:
+            return  # not held here, or the long press already acted
+        if self._meter_clip[track]:
+            self.toast(f"Clip cleared: strip {track + 1}")
+        self._set_meter_clip(track, False)
+        self._render_meter_clip(track, force=True)  # the APC40 may change the LED on press
+
+    def _clip_stop_holds(self) -> None:
+        for track, pressed_at in self._clip_stop_held.items():
+            if pressed_at is None or self._frame - pressed_at < self.long_press_frames:
+                continue
+            self._clip_stop_held[track] = None
+            self._mcu_click(CLIP_STOP_RESET + track)
+            self.toast(f"{hud_state.KNOB_MODE_TOASTS[self.knob_mode]} reset: strip {track + 1}")
 
     def _on_stop_press(self) -> None:
         """Stop; a second press soon after also goes to the start (MCU Home)."""
@@ -1598,6 +1625,10 @@ class Engine:
             self._c4_reset()
             return
         self._c4_wrap_pending = False
+        # The C4 follows the strips' Tracks / Buses choice, and unlike the main
+        # surface it is refreshed in full whenever the app starts: its banner
+        # corrects a stale guess (Cakewalk may still show buses from before).
+        self._cw_buses = not display.strip.startswith("Track ")
         # No toast: the HUD's plug-in line already shows this.
         log.info("C4: %s, FX %s: %s", display.strip, display.slot, display.plugin or "no plug-in")
 
@@ -1856,7 +1887,7 @@ class Engine:
 
     def _seq_pad(self, track: int, row: int, pressed: bool) -> None:
         """A tap cycles the step at release; hold + Device knob sets its velocity;
-        holding a lit pad for ``seq_hold_frames`` turns it off (see _seq_holds)."""
+        holding a lit pad for ``long_press_frames`` turns it off (see _seq_holds)."""
 
         cell = self._seq_cell(track, row)
         if cell is None:
@@ -1894,7 +1925,7 @@ class Engine:
         """Turn off a lit step whose pad has been held long enough."""
 
         for cell, pressed_at in self._seq_held.items():
-            if pressed_at is None or self._frame - pressed_at < self.seq_hold_frames:
+            if pressed_at is None or self._frame - pressed_at < self.long_press_frames:
                 continue
             if self.sequencer.velocity(*cell):
                 self.sequencer.set_velocity(*cell, 0)
@@ -2079,25 +2110,6 @@ class Engine:
         self.apc.global_note(note, apc.LED_ON, force=True)
         self._schedule_flash(frames, lambda: self.apc.global_note(note, apc.LED_OFF, force=True))
 
-    def flash_stop_all(self, frames: int | None = None) -> None:
-        """Acknowledge Stop All Clips (no host LED exists): flash Stop + Clip Stops."""
-
-        frames = self.flash_frames if frames is None else frames
-        self.apc.global_note(apc.NOTE_STOP, apc.LED_ON, force=True)
-        for track in range(self.tracks):
-            self.apc.clip_stop(track, apc.CLIP_GREEN_BLINK, force=True)
-
-        def off() -> None:
-            self.apc.global_note(apc.NOTE_STOP, apc.LED_OFF, force=True)
-            for track in range(self.tracks):
-                self.apc.clip_stop(track, apc.CLIP_OFF, force=True)
-                if self._meter_clip[track]:
-                    self._render_meter_clip(track, force=True)
-            if self.mode == "sequencer":
-                self._render_seq_stop_row(force=True)
-
-        self._schedule_flash(frames, off)
-
     def tick(self) -> None:
         """Advance meter decay and pending flashes by one frame. Call from the run loop."""
 
@@ -2106,6 +2118,7 @@ class Engine:
         self._settle_meter_toggle()
         self._zoom_idle()
         self._settle_knob_dump()
+        self._clip_stop_holds()
         self._c4_tick()
         self._repeat_nudge()
         self._expire_shift()

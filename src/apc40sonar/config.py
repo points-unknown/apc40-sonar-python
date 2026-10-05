@@ -40,6 +40,7 @@ Recognized keys (all optional; defaults match the documented topology):
     NUDGE_STEP        playhead move per Nudge press    default: 1 measure
     NUDGE_REPEAT_MS   repeat interval while Nudge held default: 150
     SHIFT_ONESHOT_MS  tapped Shift expires after       default: 3000
+    LONG_PRESS_MS     hold this long = a long press    default: 1000
     SEQ_OUT_PORT      sequencer notes, app -> Cakewalk default: APC40-SEQ
     CLOCK_IN_PORT     MIDI clock, Cakewalk -> app      default: APC40-CLOCK
     SEQ_NOTES         one MIDI note per lane           default: GM drums (10 lanes)
@@ -101,6 +102,7 @@ DEFAULTS = {
     "NUDGE_STEP": "1 measure",
     "NUDGE_REPEAT_MS": "150",
     "SHIFT_ONESHOT_MS": "3000",
+    "LONG_PRESS_MS": "1000",
     "SEQ_OUT_PORT": "APC40-SEQ",
     "CLOCK_IN_PORT": "APC40-CLOCK",
     "SEQ_NOTES": "36 38 42 46 39 37 45 47 50 49",
@@ -160,6 +162,7 @@ class Config:
     nudge_step: tuple[int, str] = (1, "measure")
     nudge_repeat_ms: int = 150
     shift_oneshot_ms: int = 3000
+    long_press_ms: int = 1000
     seq_out_port: str = "APC40-SEQ"
     clock_in_port: str = "APC40-CLOCK"
     seq_notes: tuple[int, ...] = (36, 38, 42, 46, 39, 37, 45, 47, 50, 49)
@@ -374,6 +377,7 @@ def load_config(
         nudge_step=_as_step(values, "NUDGE_STEP", DEFAULTS["NUDGE_STEP"]),
         nudge_repeat_ms=_as_int(values, "NUDGE_REPEAT_MS", 150),
         shift_oneshot_ms=_as_int(values, "SHIFT_ONESHOT_MS", 3000),
+        long_press_ms=min(5000, max(200, _as_int(values, "LONG_PRESS_MS", 1000))),
         seq_out_port=values["SEQ_OUT_PORT"],
         clock_in_port=values["CLOCK_IN_PORT"],
         seq_notes=_as_ints(values, "SEQ_NOTES", 0, 127) or Config.seq_notes,

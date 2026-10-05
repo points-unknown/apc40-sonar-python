@@ -13,7 +13,7 @@ Of the 9 migration steps in [`plans/apc40-sonar-python-plan.md`](plans/apc40-son
   rendering, startup lightshow, and end-to-end validation with Cakewalk.
 - Remaining: **step 8** (grid modes, device/plug-in control, global commands) and
   **step 9** (polish), below.
-- 386 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
+- 391 hardware-free tests pass. Pan smoothing and latching-toggle fixes are in.
 
 ## Step 8 - complete the control surface
 
@@ -29,8 +29,8 @@ modes.
 | Scene | Mode | Status |
 |---|---|---|
 | 1 | **Tracking** - utility row = editing / loop / punch (below) | To build |
-| 2 | **Step Sequencer** (below) | First version built; needs hardware test |
-| 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Built; needs hardware test |
+| 2 | **Step Sequencer** (below) | Built, verified on hardware |
+| 3 | **Mixing** - utility row = C4 plug-in control (see Mixing mode) | Built, verified on hardware |
 | 4-5 | Free | - |
 
 - [x] Scene 1/2/3 select the mode; lit Scene LED; always Tracking at startup (done)
@@ -47,7 +47,7 @@ Loop 85, Select 86, Punch 87) behind the scenes and always returns to Normal nav
 
 | Button | Press | Shift + press |
 |---|---|---|
-| Clip/Track (58) | Undo (MCU 82) | Redo (MCU 83) |
+| Clip/Track (58) | Next plug-in (C4, as in Mixing; Undo moved to Stop All Clips) | Previous plug-in |
 | Device On/Off (59) | Insert marker (M1 + Marker) | *(free)* |
 | < / > (60/61) | Previous / next marker (Marker nav + Rew/FF) | Go to selection start / end (Select nav + Rew/FF) |
 | Detail View (62) | Loop <- selection (M2 + Loop) | Cakewalk meters on/off |
@@ -150,7 +150,7 @@ Tasks:
 - [ ] Several named patterns (save as / load / switch), maybe on Scenes 4-5
 - [ ] Docs: sequencer section in `docs/quick-reference.md`, cables and Cakewalk clock
       setup in `docs/setup-loopmidi-and-cakewalk.md`, internals in `docs/GENERAL.md`
-- [ ] Later ideas: clear pattern (e.g. Shift + Stop All Clips), per-lane mute, copy page,
+- [ ] Later ideas: clear pattern, per-lane mute, copy page,
       swing, per-lane step length, internal clock for jamming without the transport
 
 ### Mixing mode (Scene 3)
@@ -163,19 +163,28 @@ follows the selected track/bus; Master toggles Tracks/Buses for bus FX.
 - [x] C4 surface per the plan: two loopMIDI cables (`C4_OUT_PORT` / `C4_IN_PORT`), answer
       the C4 handshake, set split/assignment from its LEDs at connect, `c4` module, Device
       knobs -> C4 row 1 in every mode (`DEVICE_KNOB_TARGET`), rings on the current bank's
-      channel (built; **needs hardware test**)
+      channel (done, verified)
 - [x] Utility row in Mixing: < / > = parameter page (Shift = +/-1), Clip/Track = next
-      plug-in (Shift = previous); past the last plug-in wraps to the first (built)
+      plug-in (Shift = previous); past the last plug-in wraps to the first (done, verified)
 - [x] Track Selection and Master reset the C4 to the first plug-in and page
-      (`C4_RESET_ON_SELECT`, M1 + Slot Down / Bank Left) (built)
-- [x] C4 LCD text in the HUD: plug-in line; parameter names/values row when expanded (built)
+      (`C4_RESET_ON_SELECT`, M1 + Slot Down / Bank Left) (done, verified)
+- [x] C4 LCD text in the HUD: plug-in line; parameter names/values row when expanded (done, verified)
 - [x] Setup guide + GENERAL.md for the second surface (done)
 - [x] Plug-ins whose first parameter is their on/off switch (*Enable* / *Bypass*): the
-      Device knobs skip it, Device On/Off (59) in Mixing presses it from any page (built)
+      Device knobs skip it, Device On/Off (59) in Mixing presses it from any page (done, verified)
 - [x] HUD: remembers its dragged position (right edge anchored); Expanded grows to the left;
-      off-screen spots fall back to `HUD_POSITION`; `--reset-hud-position` (built)
+      off-screen spots fall back to `HUD_POSITION`; `--reset-hud-position`; `HUD_MARGIN`;
+      fixed text widths so it never resizes (done, verified)
 - [x] C4 Split cannot be pressed (note 0 is dropped by Cakewalk): unsplit C4, the app pages
-      the 8 knobs over all 32 bound parameters (built)
+      the 8 knobs over all 32 bound parameters (done, verified)
+- [x] Undo / Redo moved from Clip/Track to **Stop All Clips** (Shift = Redo), every mode;
+      Clip/Track in Tracking = next / previous plug-in (done, verified)
+- [x] Clip Stop: short press clears its clip light, long press (`LONG_PRESS_MS`) resets
+      the knob; Stop only stops (done, verified)
+- [x] Tracks / Buses learned from the C4 banner after an app restart (Cakewalk keeps
+      Buses, the HUD used to say Tracks) (done, verified)
+- [ ] Maybe: blink the Clip Stop clip light (the original APC40's Clip Stop LEDs are
+      green only, the same as the sequencer playhead)
 - [ ] Hardware questions from the plan: does Cakewalk recreate the C4 on project switch
       (Q2)? Is the knob speed right (`C4_KNOB_STEP_LIMIT`)?
 - [x] Device knob baselines per APC40 bank; Device ring feedback on the current bank's

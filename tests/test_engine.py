@@ -90,14 +90,36 @@ def test_track1_arm_sends_standard_mcu_rec_note_zero():
     assert rec.mcu_msgs == [mcu.button_press(0), mcu.button_release(0)]
 
 
-def test_clip_stop_is_momentary_press_edge_only():
-    eng, rec, _ = make_engine()
+def test_clip_stop_long_press_resets_the_knob_once():
+    eng, rec, _ = make_engine(long_press_frames=5)
 
     eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 127))
+    for _ in range(4):
+        eng.tick()
+    assert rec.mcu_msgs == []  # not yet a long press
+    eng.tick()
+    assert rec.mcu_msgs == click(mcu.NOTE_VPOT_PUSH1 + 1)  # acts at the hold time
+    for _ in range(10):
+        eng.tick()
+    eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 0))
+    assert rec.mcu_msgs == click(mcu.NOTE_VPOT_PUSH1 + 1)  # once, and not on release
+    assert toast_texts(eng)[-1] == "Pan reset: strip 2"
+
+
+def test_clip_stop_short_press_clears_only_its_clip_light():
+    eng, rec, _ = make_engine(long_press_frames=5)
+    eng.on_mcu_message(mcu.meter_message(1, mcu.METER_OVERLOAD_SET))
+    eng.on_mcu_message(mcu.meter_message(4, mcu.METER_OVERLOAD_SET))
+
+    eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 127))
+    eng.tick()
     eng.on_apc_message((0x91, apc.NOTE_CLIP_STOP, 0))
 
-    note = mcu.NOTE_VPOT_PUSH1 + 1
-    assert rec.mcu_msgs == [mcu.button_press(note), mcu.button_release(note)]
+    assert not eng.meter_clipped(1)
+    assert eng.meter_clipped(4)
+    assert clip_stop_state(rec, 1) == apc.CLIP_OFF
+    assert rec.mcu_msgs == []  # the knob is not reset
+    assert toast_texts(eng)[-1] == "Clip cleared: strip 2"
 
 
 def test_track_select_is_press_edge_only():
@@ -292,17 +314,25 @@ def test_tap_tempo_flashes_off_after_ticks():
     assert rec.apc_msgs[-1] == (0x80, apc.NOTE_TAP_TEMPO, 0)
 
 
-def test_stop_all_clips_sends_stop_and_flashes():
-    eng, rec, _ = make_engine(flash_frames=1)
+def test_stop_all_clips_is_undo_and_shift_redo():
+    eng, rec, _ = make_engine()
 
     eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+    eng.on_apc_message((0x80, apc.NOTE_STOP_ALL_CLIPS, 0))
+    eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
+    eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
 
-    assert mcu.button_press(mcu.NOTE_STOP) in rec.mcu_msgs
-    assert (0x90, apc.NOTE_STOP, 127) in rec.apc_msgs
-    assert (0x91, apc.NOTE_CLIP_STOP, apc.CLIP_GREEN_BLINK) in rec.apc_msgs
+    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) + click(mcu.NOTE_CW_REDO)
 
-    eng.tick()
-    assert (0x80, apc.NOTE_STOP, 0) in rec.apc_msgs
+
+def test_stop_all_clips_is_undo_in_every_mode():
+    seq = sq.Sequencer(lambda m: None)
+    eng, rec, _ = make_engine(sequencer=seq)
+    for scene in range(3):
+        eng.on_apc_message((0x90, apc.NOTE_SCENE1 + scene, 127))
+        rec.mcu_msgs.clear()
+        eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+        assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO), scene
 
 
 # ---------------------------------------------------------------------------
@@ -406,24 +436,22 @@ def test_over_level_latches_clip_without_host_overload_flag():
     assert grid_state(rec, 1)[1] == apc.CLIP_RED
 
 
-def test_stop_all_clips_releases_clip_latches():
-    eng, rec, _ = make_engine(flash_frames=1)
+def test_stop_and_undo_leave_clip_lights_alone():
+    eng, rec, _ = make_engine()
     eng.on_mcu_message(mcu.meter_message(1, mcu.METER_OVERLOAD_SET))
 
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
     eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
-    eng.tick()
 
-    assert not eng.meter_clipped(1)
-    assert clip_stop_state(rec, 1) == apc.CLIP_OFF
+    assert eng.meter_clipped(1)
+    assert clip_stop_state(rec, 1) == apc.CLIP_RED
 
 
-def test_clip_latch_survives_the_stop_all_flash_when_it_reclips():
-    eng, rec, _ = make_engine(flash_frames=2)
+def test_clip_latch_comes_back_when_it_clips_again_after_stop():
+    eng, rec, _ = make_engine()
 
-    eng.on_apc_message((0x90, apc.NOTE_STOP_ALL_CLIPS, 127))
+    eng.on_apc_message((0x90, apc.NOTE_STOP, 127))
     eng.on_mcu_message(mcu.meter_message(3, mcu.METER_OVERLOAD_SET))
-    eng.tick()
-    eng.tick()
 
     assert clip_stop_state(rec, 3) == apc.CLIP_RED
 
@@ -1149,7 +1177,7 @@ def test_hud_toasts_for_actions_without_feedback():
         "Channel <",
         "Metronome (rec) toggled",
         "Go to start",
-        "Stop all",
+        "Undo",
     ]
     ids = [i for i, _t in eng.hud_snapshot().toasts]
     assert ids == sorted(ids) and len(set(ids)) == len(ids)
@@ -1604,14 +1632,14 @@ def test_metronome_button_is_auto_punch_and_shift_is_the_metronome():
     assert rec.mcu_msgs == click(mcu.NOTE_F2) + click(mcu.NOTE_F1)
 
 
-def test_undo_and_redo():
+def test_clip_track_no_longer_undoes_in_tracking():
     eng, rec, _ = make_engine()
 
     tap(eng, apc.NOTE_UTIL_CLIP_TRACK)
     eng.on_apc_message((0x90, apc.NOTE_SHIFT, 127))
     tap(eng, apc.NOTE_UTIL_CLIP_TRACK)
 
-    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) + click(mcu.NOTE_CW_REDO)
+    assert rec.mcu_msgs == []  # without the C4 surface it does nothing
 
 
 def test_insert_marker():
@@ -1773,14 +1801,13 @@ def test_latching_utility_buttons_act_on_both_edges_and_stay_dark():
     assert leds and all(m[0] & 0xF0 == 0x80 for m in leds)  # only "off" writes
 
 
-def test_latching_undo_works_on_every_press():
+def test_latching_insert_marker_works_on_every_press():
     eng, rec, _ = make_engine()
 
     for status in (0x90, 0x80, 0x90):
-        eng.on_apc_message((status, apc.NOTE_UTIL_CLIP_TRACK, 127))
+        eng.on_apc_message((status, apc.NOTE_UTIL_DEVICE_ONOFF, 127))
 
-    assert rec.mcu_msgs == click(mcu.NOTE_CW_UNDO) * 3
-
+    assert rec.mcu_msgs == with_mod(mcu.NOTE_M1, mcu.NOTE_CW_MARKER) * 3
 
 
 # ---------------------------------------------------------------------------
@@ -1791,7 +1818,7 @@ def test_latching_undo_works_on_every_press():
 def make_seq_engine(steps=16, lanes=sq.DEFAULT_LANES):
     notes = []
     seq = sq.Sequencer(notes.append, steps=steps, lanes=lanes)
-    eng, rec, out = make_engine(sequencer=seq, seq_indicator_frames=3, seq_hold_frames=5, seq_clock_frames=5,
+    eng, rec, out = make_engine(sequencer=seq, seq_indicator_frames=3, long_press_frames=5, seq_clock_frames=5,
                                    seq_display_lead_ms=0)
     eng.on_apc_message((0x90, apc.NOTE_SCENE1 + 1, 127))
     rec.apc_msgs.clear()

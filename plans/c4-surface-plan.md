@@ -4,6 +4,12 @@ Status: **built (2026-10-04), not yet tested on hardware.** As-built behavior is
 `docs/GENERAL.md` (*Plug-in knobs (C4)*). Differences from this plan:
 
 - Ports are `C4-IN` / `C4-OUT` (the user's cable names), not `APC40-C4-*`.
+- **"Exclude filters from plug-ins"** (tested on hardware, 2026-10-04): off (default),
+  Cakewalk prepends *ProChannel EQ* and *Track Compressor* as slots 1-2, then the normal
+  plug-in list, which already contains the ProChannel modules (so the EQ appears twice).
+  On, only the normal list remains: ProChannel modules first, then the FX rack (the
+  reverb moved from FX 7 to FX 5). Recommended: on. The user likes the ProChannel first.
+  Answers Q4 (default is off).
 - **Split 1/3 is impossible:** Split is note 0 and Cakewalk drops note 0 (hardware,
   2026-10-04). The C4 stays unsplit; all 32 V-pots are bound and the app pages its own
   8-knob window over them (sections 2 and 4.1's Split steps are superseded).

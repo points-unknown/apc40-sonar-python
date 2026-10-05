@@ -27,18 +27,19 @@ panel.
 | **Cakewalk meters** | Off / On | **Shift + Detail View** | Detail View flashes; grid meters appear or stop | Whatever Cakewalk had | Whether Cakewalk sends meter data |
 | **Mode** | **Tracking**, **Step Sequencer**, **Mixing** | **Scene 1 / 2 / 3** | Lit Scene LED; HUD `Tracking` / `Sequencer` / `Mixing` | Tracking (always at startup) | Utility-row buttons 58-61 (see Utility row); in the Step Sequencer also the grid, Clip Stop row and Bank Select arrows (see Step sequencer) |
 | **Plug-in on the Device knobs** | Any plug-in of the selected track or bus, 8 parameters at a time | Track Selection (first plug-in); in Mixing: Clip/Track (plug-in), < / > (parameters) | HUD plug-in line (pink); in Expanded, the 8 parameter names and values | The selected track's first plug-in | Device Control knobs + rings (needs the C4 surface, see Device Control knobs) |
-| **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` | Tracks | What the 8 strips control: faders, strip buttons, Pan/Send knobs, meters and Track Selection |
+| **Strips** | Tracks, Buses | **Master** button | HUD `Trk 9-16` / `Buses` (Cakewalk keeps Buses across an app restart; the HUD learns it from the C4 surface) | Tracks | What the 8 strips control: faders, strip buttons, Pan/Send knobs, meters and Track Selection |
 
 ## The three modes (Scene 1 / 2 / 3)
 
 The workflow runs left to right: record parts, program beats, then mix. Press a Scene
 button to switch; its LED stays lit. Faders, strip buttons, the Pan/Send knobs, the
 Device Control knobs, transport, Cue Level, the crossfader, Stop and the Loop/Punch half
-of the utility row (62-65) work the same in every mode. What changes:
+of the utility row (62-65) work the same in every mode, and so does **Stop All Clips =
+Undo** (Shift = Redo). What changes:
 
 | Mode | For | What changes |
 |---|---|---|
-| **Tracking** (Scene 1, the startup mode) | Recording and editing | Utility buttons 58-61 = **Undo / Redo, insert marker, previous / next marker**, selection start / end. The grid shows level meters |
+| **Tracking** (Scene 1, the startup mode) | Recording and editing | Utility buttons 59-61 = **insert marker, previous / next marker**, selection start / end; Clip/Track (58) = next plug-in, as in Mixing. The grid shows level meters |
 | **Step Sequencer** (Scene 2) | Programming a drum pattern | The **grid is the pattern** and the Clip Stop row is the playhead; Bank Select arrows page steps and lanes; holding a pad lets the Device knobs set its velocity; an editor window opens. 58-61 do nothing. Needs its two cables (see Step sequencer) |
 | **Mixing** (Scene 3) | Working on effects | Utility buttons 58-61 = **plug-in control**: next / previous plug-in, plug-in on/off, next / previous 8 parameters. Needs the C4 surface (see Device Control knobs). The grid shows level meters |
 
@@ -55,7 +56,7 @@ stays in the current mode and the HUD says so.
 | **Activator** | Mute on/off (lit = **muted**, from Cakewalk) | From Cakewalk | **Live** | - |
 | **Solo** | Solo on/off | From Cakewalk | **Live** | - |
 | **Record Arm** | Arm on/off | From Cakewalk | **Live** (track 1 cannot arm: Cakewalk ignores it) | - |
-| **Clip Stop** | **Reset this track's Track Control knob to its default**: in Pan mode re-centers the pan; in Send A / B / C mode resets that send's level to its default | Meters mode: red = this track clipped (stays lit until **Stop All Clips**). Pads mode: off | **Live** | - |
+| **Clip Stop** | **Short press: clear this track's clip light.** **Long press** (hold 1 s, `LONG_PRESS_MS`): **reset this track's Track Control knob** to its default: in Pan mode re-centers the pan, in Send A / B / C mode resets that send's level. The reset happens as soon as the hold time is reached; the HUD toasts `Pan reset: strip 3` or `Clip cleared: strip 3` | Meters mode: **lit = this strip clipped** (reached 0 dB or over; on **Buses** the strips are your buses, so strip 1 is usually the Master bus) and stays lit until you short-press it. The original APC40 lights this row in green only. Pads mode: off | **Live** | - |
 
 The Activator LED follows Cakewalk's mute state, so lit means muted. This is the
 opposite of Ableton, where lit means active.
@@ -66,7 +67,7 @@ opposite of Ableton, where lit means active.
 |---|---|---|---|
 | **Grid pads** | Press does nothing. Each column is a level meter for its track: rows 5-3 green, 2 yellow, 1 red | Pad lights green while held. No action | Drum pads, clip launch |
 | **Scene 1 / 2 / 3** | **Mode:** 1 = Tracking, 2 = Step Sequencer (the grid becomes the pattern; see Step sequencer), 3 = Mixing. The active mode's Scene LED is lit | Same | Scenes 4-5: free |
-| **Stop All Clips** | Transport Stop + clears all clip latches + flashes Stop and Clip Stop LEDs | Stop + flash | - |
+| **Stop All Clips** | **Undo** (every mode). **Shift + Stop All Clips = Redo**. HUD toasts `Undo` / `Redo` (the button has no light) | Same | - |
 
 Meter scale (row: lit at): 1: 0 dB, 2: -6 dB, 3: -10 dB, 4: -20 dB, 5: -40 dB.
 
@@ -97,7 +98,7 @@ Clip Stop   [ ][ ][*][ ][ ][ ][ ][ ]  the step playing now
 | Control | Action | LED | Status |
 |---|---|---|---|
 | **Grid pad** (tap) | Cycle the step: off -> **green** (normal, velocity 100) -> **amber** (accent, 127) -> **red** (soft, 60) -> off | Step color | **Live** |
-| **Grid pad** (hold 1 s on a lit step) | Turn the step **off** (no need to cycle through) | Goes dark at the 1 s mark | **Live** |
+| **Grid pad** (hold 1 s on a lit step, `LONG_PRESS_MS`) | Turn the step **off** (no need to cycle through) | Goes dark at the 1 s mark | **Live** |
 | **Grid pad** (hold) + **any Device Control knob** | Set the held step's exact velocity (1-127). Several pads can be held at once | The pad shows the nearest color; the knob's ring shows the value; the HUD shows `Velocity N` | **Live** |
 | **Clip Stop row** | Display only: the step playing now (dark while stopped, or when the playing step is on another page). Pressing does nothing | Green | **Live** |
 | **Bank Select Left / Right** | Previous / next page of **steps** (1-8, 9-16, ...) | For 0.6 s the Clip Stop row shows the page number: LED *n* = page *n* | **Live** |
@@ -167,19 +168,21 @@ last send.
 
 | When | Knobs control | Rings show | Status |
 |---|---|---|---|
-| Every mode, with the C4 surface set up | **8 parameters of the selected track's plug-in**. Pick the track with Track Selection; on **Buses** (Master) they control the selected bus's plug-in. The Track Control knobs stay on Pan/Sends | The parameter values from Cakewalk; **off** = no parameter on this knob | **Live** (verified: knobs, plug-in stepping; *paging and on/off need a hardware test*) |
+| Every mode, with the C4 surface set up | **8 parameters of the selected track's plug-in**. Pick the track with Track Selection; on **Buses** (Master) they control the selected bus's plug-in. The Track Control knobs stay on Pan/Sends | The parameter values from Cakewalk; **off** = no parameter on this knob | **Live** |
 | Step Sequencer, while a pad is held | That step's velocity (see Step sequencer) | The velocity | **Live** |
 | Without the C4 surface (cables missing or `C4=off`) | Nothing | Centered, pan style (startup) | `-` |
 
 The plug-in control needs two more loopMIDI cables and a second Cakewalk surface: see the
 setup guide, *Plug-in knobs (optional)*.
 
-- **Which plug-ins:** every effect in the track's FX rack, in order, and the
-  **ProChannel** modules (EQ, compressor, Tube, ...), which Cakewalk lists first. *Exclude
-  filters from plug-ins* on the main Mackie Control page should leave the ProChannel out
-  (not tested).
+- **Which plug-ins:** the track's **ProChannel** modules (compressor, EQ, Tube, ...)
+  come first, then every effect in its FX rack, in order. With *Exclude filters from
+  plug-ins* ticked in the Mackie Control preset (recommended), that is the whole list:
+  for example U76 Comp, ProChannel EQ, Tube, Console C, then the first FX-rack plug-in as
+  FX 5. Unticked, Cakewalk adds *ProChannel EQ* and *Track Compressor* in front, so the
+  EQ appears twice and everything moves two places on.
 - **Choosing the plug-in and the 8 parameters:** in **Mixing** mode (Scene 3) with the
-  utility row: **Clip/Track** = next plug-in (Shift = previous), **< / >** = previous /
+  utility row: **Clip/Track** = next plug-in (Shift = previous; also in Tracking), **< / >** = previous /
   next 8 parameters (Shift = by 1), **Device On/Off** = the plug-in's on/off switch. See
   Utility row. In the other modes the knobs keep the last choice.
 - **Paging:** the first page is parameters 1-8, then 9-16, and so on; the HUD toasts
@@ -228,12 +231,13 @@ setup guide, *Plug-in knobs (optional)*.
 These buttons work, and their LEDs show, whichever track (or Master) is selected. The
 row groups **Loop** (62-63) and **Punch** (64-65): the "from selection" setter next to its
 on/off toggle. In Mixing, 58-61 choose what the Device Control knobs control (they need
-the C4 surface; without it the HUD toasts `Plug-in control: no C4 surface`). In the Step
-Sequencer, 58-61 do nothing.
+the C4 surface; without it the HUD toasts `Plug-in control: no C4 surface`); Clip/Track
+does that in Tracking too. In the Step Sequencer, 58-61 do nothing. Undo / Redo are on
+**Stop All Clips** (away from this row, where they were too easy to hit by accident).
 
 | Button | Tracking (Scene 1) | Mixing (Scene 3) | Shift + button (both modes) | LED |
 |---|---|---|---|---|
-| **Clip/Track** (58) | **Undo** | **Next plug-in** on the selected track, starting on its first parameters; after the last it goes back to the first | Tracking: **Redo**. Mixing: **previous plug-in** | Mixing: flashes |
+| **Clip/Track** (58) | **Next plug-in**, as in Mixing | **Next plug-in** on the selected track, starting on its first parameters; after the last it goes back to the first | **Previous plug-in** | Flashes |
 | **Device On/Off** (59) | **Insert marker** at the playhead | **Plug-in on/off**: presses the plug-in's on/off switch (*Enable* / *Bypass*), from any parameter page; the HUD toasts the new state, e.g. `Bypass: On`. Plug-ins without a switch: HUD says so | - | Mixing: flashes |
 | **Left / Right arrow** (60/61) | **Previous / next marker** | **Previous / next 8 parameters** of the plug-in; stops at its first and last (HUD: `First parameters` / `No more parameters`) | Tracking: **go to selection start / end**. Mixing: **parameters back / forward by 1** | Mixing: flashes |
 | **Detail View** (62) | **Loop <- selection**: loop points = the current selection | Same | **Cakewalk meters on/off** | Flashes on the meters toggle |
@@ -250,6 +254,7 @@ use Loop <- selection or Punch <- selection.
 |---|---|---|---|---|
 | **Play** | Play | From Cakewalk | **Live** | - |
 | **Stop** | Stop. **Press twice quickly** (within 0.4 s) to also return to the start of the project | From Cakewalk | **Live** | - |
+| **Stop All Clips** | **Undo**; **Shift + Stop All Clips = Redo** (every mode) | None (HUD toast) | **Live** | - |
 | **Record** | Record | From Cakewalk | **Live** | - |
 | **Bank Select Left / Right** | Move the 8-track window by **8 tracks** (tracks 1-8 -> 9-16 ...). Step Sequencer: page the steps | Flashes on press | **Live** | - |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by **1 track** | Flashes on press | **Live** | - |
@@ -278,7 +283,8 @@ for a button. Buttons without a combo do their normal action while shifted.
 | **Shift + Detail View** | Toggle Cakewalk Mackie Control meters on/off (sends M2 + Name/Value; steps twice if needed) | **Live** |
 | **Shift + Bank Select Left / Right** | Move the 8-track window by 1 track | **Live** |
 | **Shift + Metronome** | Metronome **during record** on/off (sends Mackie F1; the preset assigns F1 to *Metronome During Record*) | **Live** |
-| **Shift + Clip/Track** | Redo (Tracking); previous plug-in (Mixing) | **Live** |
+| **Shift + Stop All Clips** | Redo (every mode) | **Live** |
+| **Shift + Clip/Track** | Previous plug-in (Tracking and Mixing) | **Live** |
 | **Shift + Left / Right arrow** | Go to selection start / end (Tracking); parameters back / forward by 1 (Mixing) | **Live** |
 | **Shift + Nudge - / +** | Selection start / end = playhead | **Live** |
 

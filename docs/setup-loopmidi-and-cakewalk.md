@@ -127,6 +127,7 @@ listed as *Mackie Control - 1* and so on).
 | **Jog Wheel Resolution** | *Jog Wheel Resolution* group | Any | Measures | Nothing. The APC40's playhead step sizes are set in `.env` (`CUE_STEP`, `SHIFT_CUE_STEP`, `NUDGE_STEP`); this only applies to a step set to unit `jog` |
 | **Select highlights track** | *Options* group | **Checked** | Unchecked | The APC40 **Track Selection** buttons only move the Mackie surface's internal focus; the track is not selected in Cakewalk. Leave *Double-click to select* unchecked |
 | **Protocol** | *Protocol* group | **Mackie Control Universal (Cakewalk/SONAR Mode)** | Same (leave it) | *Universal Mode* renumbers buttons and ignores the modifier keys; *HUI* and *Cubase Mode* are different protocols |
+| **Exclude filters from plug-ins** | *Options* group | **Checked** (only matters with the plug-in knobs, step 7) | Unchecked | The Device knobs' plug-in list starts with two extra entries (*ProChannel EQ*, *Track Compressor*), the EQ appears twice, and every plug-in is two presses further away |
 | **Disable handshake** | *Options* group | **Checked** | Checked (leave it) | apc40sonar does not answer Cakewalk's Mackie handshake, so with this unchecked Cakewalk ignores every APC40 button and fader |
 
 Everything else on the page can stay at its default.
@@ -215,11 +216,18 @@ without it.
    - Input Port: **`C4-IN`**
    - Output Port: **`C4-OUT`**
    - Click **OK**, then **Apply**. Keep the existing *Mackie Control* entry as it is.
-4. **Optional, main Mackie Control settings page** (*Utilities > Mackie Control*, step 4):
-   Cakewalk lists the **ProChannel** modules (EQ, compressor, Tube, ...) as the first
-   plug-ins, so selecting a track puts the ProChannel under the knobs. That is handy for
-   quick EQ and dynamics. To start on the first FX-rack plug-in instead, tick **Exclude
-   filters from plug-ins** (not tested yet) and re-save your `APC40` preset.
+4. **Main Mackie Control settings page** (*Utilities > Mackie Control*, step 4): tick
+   **Exclude filters from plug-ins**, then re-save your `APC40` preset (it is stored per
+   project, like the other settings). Unticked (Cakewalk's default), Cakewalk puts two
+   extra entries in front of the plug-in list, *ProChannel EQ* and *Track Compressor* (for
+   the EQ / Dynamics buttons of a real Mackie), so the EQ appears twice and every plug-in
+   is two Clip/Track presses further away. Either way the track's **ProChannel** modules
+   come first, then the FX rack. Example (tested 2026-10-04):
+
+   | Ticked | Not ticked |
+   |---|---|
+   | FX 1 U76 Comp, FX 2 ProChannel EQ, FX 3 Tube, FX 4 Console C, **FX 5 TrueVerb** | FX 1 ProChannel EQ, FX 2 Track Compressor, FX 3 U76 Comp, FX 4 ProChannel EQ, FX 5 Tube, FX 6 Console C, **FX 7 TrueVerb** |
+
    The C4 has its own settings page (*Utilities > Mackie Control C4*); leave it as it is.
    There is no *Disable handshake* option for the C4: the app answers Cakewalk's
    handshake itself.
@@ -283,7 +291,8 @@ does is Cakewalk's *Meters* setting, and you can switch it without opening any d
 | MCU data shows up in a MIDI track recording | Track input set to Omni | Set MIDI track inputs to your keyboard instead of *All Inputs / Omni* |
 | Device knobs do nothing; the HUD says `connecting to Cakewalk's C4 surface...` | No *Mackie Control C4* surface, wrong ports, Cakewalk not restarted after enabling `C4-IN`/`C4-OUT`, or no project loaded | Check [step 7](#7-plug-in-knobs-optional), restart Cakewalk, load a project |
 | Device knobs do nothing and the HUD has no pink plug-in line | The `C4-IN` / `C4-OUT` cables are missing (the console says `C4 ports ... unavailable`) or `C4=off` in `.env` | Create the cables in loopMIDI and restart the app |
-| Device knobs start on a ProChannel module, not the FX rack | Cakewalk lists the ProChannel first (normal) | Press Clip/Track in Mixing to step on, or tick *Exclude filters from plug-ins* ([step 7](#7-plug-in-knobs-optional)) |
+| Device knobs start on a ProChannel module, not the FX rack | Cakewalk always lists the ProChannel modules first (normal) | Press Clip/Track in Mixing to step on to the FX rack |
+| The plug-in list starts with *ProChannel EQ*, *Track Compressor*, and the EQ appears twice | *Exclude filters from plug-ins* is unticked in this project | Tick it ([step 7](#7-plug-in-knobs-optional)) and re-save the preset |
 
 `uv run apc40sonar --monitor` shows `apc:`/`mcu:`/`c4:` for incoming messages and
 `apc>`/`mcu>`/`c4>` for outgoing ones, so you can tell which side of the link is failing. The

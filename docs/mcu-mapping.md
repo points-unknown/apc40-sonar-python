@@ -164,7 +164,7 @@ note numbers below the Assign buttons follow Cakewalk's own *Cakewalk/SONAR Mode
 | Solo 1-8 | Note 49 on `ch0`-`ch7` | Solo Note 8-15 (both latch edges) |
 | Record Arm 1-8 | Note 48 on `ch0`-`ch7` | Rec Note 0-7 (both latch edges) |
 | Track Selection 1-8 | No note in Generic Mode; the bank's Device knob dump (CC 16-23) | Select Note 24-31 |
-| Clip Stop 1-8 | Note 52 on `ch0`-`ch7` | V-pot push Note 32-39 (reset the knob parameter) |
+| Clip Stop 1-8 | Note 52 on `ch0`-`ch7` | Short press: clear the clip indicator (local); long press: V-pot push Note 32-39 (reset the knob parameter) |
 | Play / Stop / Record | Notes 91 / 92 / 93 | Play 94 / Stop 93 / Record 95; Stop x2 adds Home 90 |
 | Bank Select Left / Right | Notes 97 / 96 | Bank Left 46 / Right 47; Shift = Channel 48 / 49 |
 | Bank Select Up / Down | Notes 94 / 95 | Cursor Up 96 / Down 97 |
@@ -173,11 +173,11 @@ note numbers below the Assign buttons follow Cakewalk's own *Cakewalk/SONAR Mode
 | Cue Level | CC 47 (relative) | Jog CC 60 (`CUE_STEP` / `SHIFT_CUE_STEP`) |
 | Crossfader | CC 15 | Zoom 100 + Cursor Left/Right; far left = Zoom + M4 + Right (fit) |
 | Tap Tempo | Note 99 | Nothing (no MCU tap tempo) |
-| Utility row 58-65 | Notes 58-65 on the bank channel `ch0`-`ch8` | Undo 82 / Redo 83, M1 + Marker 84, Marker/Select nav 84/86 + Rewind/Forward, M2 + Loop 85, Loop 89, M2 + Punch 87, F2 55, F1 54; Shift + Detail View = M2 + Name/Value 52 |
+| Utility row 58-65 | Notes 58-65 on the bank channel `ch0`-`ch8` | Clip/Track = C4 Slot Up / Down (plug-in), M1 + Marker 84, Marker/Select nav 84/86 + Rewind/Forward, M2 + Loop 85, Loop 89, M2 + Punch 87, F2 55, F1 54; Shift + Detail View = M2 + Name/Value 52 |
 | Pan / Send A-C | Notes 87-90 | Assign Pan 42 / Send 41 (only when switching), then Edit 51 + M1 + Bank/Channel moves to send 1-3 |
 | Scene 1 / 2 / 3 | Notes 82-84 | Nothing (local mode switch) |
 | Master | Note 80 or the Master bank's knob dump | Track 76 / Aux 80 (strips show tracks / buses) |
-| Stop All Clips | Note 81 | Transport Stop 93 + local acknowledgment |
+| Stop All Clips | Note 81 | Undo 82 (Shift: Redo 83), Cakewalk-mode numbers |
 | Clip grid 1-8 x 1-5 | Notes 53-57 on `ch0`-`ch7` | Nothing (level-meter display) |
 
 > Note on transport numbering: MCU **Record is note 95 (0x5F)** and **Play is 94 (0x5E)**,

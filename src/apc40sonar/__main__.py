@@ -554,7 +554,7 @@ def _run(args: argparse.Namespace) -> int:
         shift_double_frames=round(0.4 / POLL_SECONDS),
         sequencer=seq,
         seq_indicator_frames=round(0.6 / POLL_SECONDS),
-        seq_hold_frames=round(1.0 / POLL_SECONDS),
+        long_press_frames=round(cfg.long_press_ms / 1000 / POLL_SECONDS),
         seq_clock_frames=round(1.5 / POLL_SECONDS),
         seq_display_lead_ms=_load_settings(cfg).get("display_lead_ms", cfg.seq_display_lead_ms),
         c4_send=c4_send if c4_out is not None else None,

@@ -323,3 +323,12 @@ def test_hud_margin_default_and_override(tmp_path, monkeypatch):
     for text, expected in (("80,0", (80, 0)), ("30", (30, 30)), ("junk", (50, 12))):
         env_file.write_text(f"HUD_MARGIN={text}\n", encoding="utf-8")
         assert config.load_config(env_path=env_file).hud_margin == expected
+
+
+def test_long_press_default_and_limits(tmp_path, monkeypatch):
+    _clear_port_env(monkeypatch)
+    assert config.load_config(env_path=tmp_path / "missing.env").long_press_ms == 1000
+    env_file = tmp_path / ".env"
+    for text, expected in (("600", 600), ("50", 200), ("99999", 5000)):
+        env_file.write_text(f"LONG_PRESS_MS={text}\n", encoding="utf-8")
+        assert config.load_config(env_path=env_file).long_press_ms == expected
