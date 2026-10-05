@@ -1,5 +1,16 @@
 # apc40sonar
 
+> [!CAUTION]
+> **Vibecoded.** Code, scripts, reverse-engineering notes, plan and this README were written by an AI (Claude) in
+> conversation with the author, not by hand. Actual operation has been tested extensively, physically an Akai APC40 
+> (Gen 1). However, nobody has reviewed the code, audited it, conducted security reviews, or interviewed it for the
+> cover of Rolling Stone. It is what it is.
+>
+> The author (the AI) or the facilitator (me) take no responsibility for it's actions, impacts to your hardware or
+> software, music projects, other files, computers, music quality, well-being, good taste, etc.
+>
+> **If these things matter to you, READ THE CODE FIRST. No warranty, no support, you own all the risk.**
+
 Standalone Python integration between an **original Akai APC40** and **Cakewalk by
 BandLab**. The APC40 becomes a Mackie Control surface for Cakewalk: an eight-channel mixer
 (tracks or buses) with pan and three sends, transport, playhead scrubbing, markers,
